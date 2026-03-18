@@ -1,0 +1,31 @@
+# Experiment 1 — Short Bucket (MMLU)
+experiment:
+  name: "exp1_short"
+  description: "Controlled single-request eval on MMLU (128-256 tokens)"
+
+model:
+  name: "Qwen/Qwen2.5-7B"
+  local_path: "~/models/qwen2.5-7b"   # override if weights are elsewhere
+  device: "cuda"
+
+data:
+  dataset: "mmlu"
+  split: "test"
+  subjects:
+    - "abstract_algebra"
+    - "college_physics"
+    - "college_computer_science"
+    - "econometrics"
+    - "global_facts"
+  num_samples_per_subject: 50           # cap per subject, -1 for all
+  token_range:
+    min: 128
+    max: 512
+  num_few_shot: 5                       # MMLU standard is 5-shot
+
+generation:
+  max_new_tokens: 10                    # MMLU only needs a short answer (A/B/C/D)
+  temperature: 0.0                      # greedy for reproducibility
+
+output:
+  results_dir: "results/exp1_short"

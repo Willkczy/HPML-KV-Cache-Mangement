@@ -40,7 +40,20 @@ This ensures the run script and eval code work identically across all methods.
 
 ## GCP VM Setup (Each Member)
 
-Each team member runs their own GCP VM. GitHub is the single source of truth for code; VMs are disposable execution environments.
+Each team member runs their own GCP VM for **development and debugging**.
+GitHub is the single source of truth for code; VMs are disposable execution
+environments.
+
+> **⚠️ Dev vs. Benchmark — Important GPU Note**
+>
+> **Development phase:** Your VM's GPU type does not need to match others
+> (A100, L4, etc. are all fine). Use it to verify correctness, output format,
+> and catch OOM issues.
+>
+> **Benchmark phase:** All official experiment numbers **must be collected on
+> a single VM with the same GPU** by running every method sequentially. This
+> eliminates hardware variance from the comparison. See the
+> "Official Benchmark Run" section below.
 
 ```
 GitHub (code)                    Your GCP VM (execution)
@@ -66,6 +79,8 @@ gcloud compute instances create kvcache-<your-name> \
 ```
 
 Adjust machine type / GPU based on your GCP quota and budget.
+Any GPU is fine for development — official benchmark numbers will be
+collected on a single standardized VM (see "Official Benchmark Run" below).
 
 ### 2. SSH and Clone
 
@@ -120,6 +135,55 @@ gsutil cp -r gs://<your-bucket>/results/<teammate>/exp1_short/ results/<teammate
 ```bash
 gcloud compute instances stop kvcache-<your-name> --zone=us-central1-a
 ```
+
+### 7. Official Benchmark Run
+
+When collecting final experiment numbers, **one person** runs all methods
+sequentially on a **single VM** to ensure identical hardware conditions.
+
+**Benchmark VM spec (standardized):**
+
+```bash
+gcloud compute instances create kvcache-benchmark \
+    --zone=us-central1-a \
+    --machine-type=n1-standard-8 \
+    --accelerator=type=nvidia-tesla-a100,count=1 \
+    --boot-disk-size=100GB \
+    --image-family=pytorch-latest-gpu \
+    --image-project=deeplearning-platform-release \
+    --maintenance-policy=TERMINATE
+```
+
+**Procedure:**
+
+```bash
+# 1. Make sure all methods are merged into dev
+git checkout dev && git pull origin dev
+
+# 2. Run every method on the same machine, same GPU
+for method in full_cache paged_attention h2o streaming_llm; do
+    python scripts/run_experiment1.py \
+        --config configs/experiment1_short.yaml \
+        --method $method
+done
+
+# 3. Upload official results
+gsutil cp -r results/exp1_short/ gs://<your-bucket>/results/official/exp1_short/
+```
+
+**Why this matters:**
+- TTFT, decode latency, and throughput are highly sensitive to GPU model and
+  memory bandwidth (A100 vs L4 can differ by 3–5×).
+- Peak KV memory is theoretically hardware-independent, but PyTorch's
+  allocator behavior can vary slightly across GPU memory sizes.
+- Running sequentially on one machine is the simplest way to eliminate
+  hardware as a confounding variable.
+
+**Your personal VM results are still useful for:**
+- Verifying correctness and output format
+- Catching bugs and OOM issues
+- Observing rough trends (e.g., "longer context is slower")
+- They should **not** appear in the final comparison tables
 
 ## Local Environment Setup
 

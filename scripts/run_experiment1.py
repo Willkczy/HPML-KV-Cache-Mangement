@@ -22,8 +22,12 @@ Usage:
 import argparse
 import json
 import os
+import sys
 import time
 from pathlib import Path
+
+# Allow running as `python scripts/run_experiment1.py` from the project root
+sys.path.insert(0, str(Path(__file__).parent.parent))
 
 import yaml
 

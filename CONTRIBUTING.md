@@ -44,6 +44,10 @@ Each team member runs their own GCP VM for **development and debugging**.
 GitHub is the single source of truth for code; VMs are disposable execution
 environments.
 
+> **📖 For the full step-by-step guide** (including network setup, venv
+> pitfalls, and troubleshooting), see **[docs/VM_SETUP.md](docs/VM_SETUP.md)**.
+> The quick-start below is a condensed version.
+
 > **⚠️ Dev vs. Benchmark — Important GPU Note**
 >
 > **Development phase:** Your VM's GPU type does not need to match others

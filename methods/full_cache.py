@@ -27,7 +27,7 @@ class FullCacheMethod(BaseMethod):
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             device_map=device,
-            torch_dtype=torch.float16,
+            dtype=torch.float16,
         )
         self.model.eval()
 

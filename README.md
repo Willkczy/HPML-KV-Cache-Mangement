@@ -12,7 +12,7 @@ KV cache is the dominant memory bottleneck during LLM inference. As context leng
 |--------|----------|---------------|-------|
 | **Full Cache** | Store all KV pairs (baseline) | HuggingFace Transformers | Hung-Kai Huang |
 | **PagedAttention** | Block-based non-contiguous allocation | vLLM | Kane Wang |
-| **H2O** | Attention-driven selective eviction | Official H2O repo | TBD |
+| **H2O** | Attention-driven selective eviction | Official H2O repo | Sripad Karne |
 | **StreamingLLM** | Sliding window + attention sinks | Official StreamingLLM repo | Ting-Feng Huang |
 
 Every method implements the same `BaseMethod` interface (see `methods/base.py`), taking identical inputs and returning a standardized `MethodOutput` so that data loading, experiment orchestration, and evaluation are fully shared.

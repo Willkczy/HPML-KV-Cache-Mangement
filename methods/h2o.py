@@ -42,11 +42,13 @@ def _kv_memory_mb(cache) -> float:
     """Sum of bytes used by all K and V tensors, converted to MB."""
     if cache is None:
         return 0.0
-    if isinstance(cache, DynamicCache):
-        tensors = cache.key_cache + cache.value_cache
-    else:
-        tensors = [t for layer_kv in cache for t in layer_kv]
-    return sum(t.nelement() * t.element_size() for t in tensors) / (1024 ** 2)
+    total = 0
+    num_layers = len(cache)
+    for layer_idx in range(num_layers):
+        k, v = cache[layer_idx]
+        total += k.nelement() * k.element_size()
+        total += v.nelement() * v.element_size()
+    return total / (1024 ** 2)
 
 
 # ── Core eviction logic ─────────────────────────────────────────────────────
@@ -60,47 +62,32 @@ def _update_and_evict(
 ):
     """Accumulate attention scores and evict over-budget tokens.
 
-    Supports both legacy tuple-of-tuples and DynamicCache (transformers >= 4.38).
+    Uses the public DynamicCache API (cache[layer_idx] and cache.update())
+    to stay compatible across transformers versions.
 
     Args:
-        past_key_values: HuggingFace cache — either a tuple of (k, v) per layer
-            or a DynamicCache object. Each k/v has shape [B, H, kv_len, head_dim].
-        attn_weights: tuple of attention weight tensors per layer.
-            Shape per layer: [B, H, q_len, kv_len].
-        hh_scores: per-layer cumulative score tensors from the previous step,
-            or None on the very first call.
+        past_key_values: DynamicCache or tuple-of-tuples from model forward.
+        attn_weights: tuple of [B, H, q_len, kv_len] attention tensors per layer.
+        hh_scores: per-layer cumulative score tensors, or None on first call.
         hh_size: number of heavy-hitter tokens to keep.
         recent_size: number of most-recent tokens to always keep.
 
     Returns:
-        (new_past_key_values, new_hh_scores)
+        (new_cache, new_hh_scores)  — new_cache is always a DynamicCache.
     """
     budget = hh_size + recent_size
     new_scores = []
-
-    is_dynamic = hasattr(past_key_values, "key_cache")
-
-    if is_dynamic:
-        # Direct references to the DynamicCache's internal lists — edits are
-        # in-place, so we can return the original object unchanged.
-        key_cache = past_key_values.key_cache
-        val_cache = past_key_values.value_cache
-    else:
-        key_cache = [kv[0] for kv in past_key_values]
-        val_cache = [kv[1] for kv in past_key_values]
+    new_cache = DynamicCache()
 
     for layer_idx, layer_attn in enumerate(attn_weights):
-        k = key_cache[layer_idx]   # [B, H, kv_len, head_dim]
-        v = val_cache[layer_idx]
+        # Public API: cache[layer_idx] → (k, v)
+        k, v = past_key_values[layer_idx]   # [B, H, kv_len, head_dim]
         kv_len = k.shape[2]
 
-        # layer_attn shape: [B, H, q_len, attn_kv_len]
-        # In some transformers versions attn_kv_len may be < kv_len
-        # (e.g. only the query positions are returned). We zero-pad to kv_len
-        # so the score vector always matches the cache length.
+        # layer_attn may be [B, H, q_len, attn_kv_len]; pad to kv_len if needed
         attn_kv_len = layer_attn.shape[-1]
-        step_score = torch.zeros(kv_len, device=k.device, dtype=layer_attn.dtype)
-        step_score[:attn_kv_len] += layer_attn.sum(dim=(0, 1, 2)).detach()
+        step_score = torch.zeros(kv_len, device=k.device, dtype=torch.float32)
+        step_score[:attn_kv_len] += layer_attn.float().sum(dim=(0, 1, 2)).detach()
 
         score = step_score.clone()
         if hh_scores is not None and hh_scores[layer_idx] is not None:
@@ -122,24 +109,14 @@ def _update_and_evict(
                 )
                 keep_idx = torch.cat([top_idx, recent_idx])
 
-            key_cache[layer_idx] = k[:, :, keep_idx, :]
-            val_cache[layer_idx] = v[:, :, keep_idx, :]
+            k = k[:, :, keep_idx, :]
+            v = v[:, :, keep_idx, :]
             score = score[keep_idx]
 
+        # Public API: cache.update(k, v, layer_idx) inserts into the new cache
+        new_cache.update(k, v, layer_idx)
         new_scores.append(score)
 
-    if is_dynamic:
-        # In-place edits already applied via list references.
-        # Return the original DynamicCache — critically, _seen_tokens is
-        # preserved so the model computes correct RoPE positions for future
-        # tokens (position = total tokens seen, not pruned cache size).
-        return past_key_values, new_scores
-
-    # Legacy tuple input: wrap pruned tensors in a DynamicCache.
-    new_cache = DynamicCache()
-    for k, v in zip(key_cache, val_cache):
-        new_cache.key_cache.append(k)
-        new_cache.value_cache.append(v)
     return new_cache, new_scores
 
 

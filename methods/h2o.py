@@ -38,23 +38,15 @@ from methods.base import BaseMethod, MethodOutput
 
 # ── KV memory helper ────────────────────────────────────────────────────────
 
-def _to_tuple(cache) -> tuple:
-    """Convert any cache format to a plain tuple of (k, v) pairs."""
-    if isinstance(cache, DynamicCache):
-        return cache.to_legacy_cache()
-    return cache
-
-
 def _kv_memory_mb(cache) -> float:
     """Sum of bytes used by all K and V tensors, converted to MB."""
     if cache is None:
         return 0.0
-    layers = _to_tuple(cache)
-    total = sum(
-        t.nelement() * t.element_size()
-        for k, v in layers
-        for t in (k, v)
-    )
+    total = 0
+    for layer in cache:
+        k, v = layer[0], layer[1]   # layer is (k, v, ...) — may have extra fields
+        total += k.nelement() * k.element_size()
+        total += v.nelement() * v.element_size()
     return total / (1024 ** 2)
 
 
@@ -69,26 +61,27 @@ def _update_and_evict(
 ):
     """Accumulate attention scores and evict over-budget tokens.
 
-    Converts to legacy tuple format internally, applies eviction, then
-    wraps the result back into a DynamicCache for the model.
+    Iterates over the cache (each layer yields a tuple whose first two
+    elements are k and v), applies H2O eviction, and rebuilds a fresh
+    DynamicCache via cache.update().
 
     Args:
-        past_key_values: DynamicCache or tuple-of-tuples from model forward.
+        past_key_values: DynamicCache from model forward. Iterating it
+            yields per-layer tuples of (k, v, ...).
         attn_weights: tuple of [B, H, q_len, kv_len] attention tensors per layer.
         hh_scores: per-layer cumulative score tensors, or None on first call.
         hh_size: number of heavy-hitter tokens to keep.
         recent_size: number of most-recent tokens to always keep.
 
     Returns:
-        (new_cache, new_hh_scores)  — new_cache is a DynamicCache.
+        (new_cache, new_hh_scores)  — new_cache is a fresh DynamicCache.
     """
     budget = hh_size + recent_size
     new_scores = []
-    layers = _to_tuple(past_key_values)   # tuple of (k, v) per layer
-    new_layers = []
+    new_cache = DynamicCache()
 
-    for layer_idx, ((k, v), layer_attn) in enumerate(zip(layers, attn_weights)):
-        # k, v: [B, H, kv_len, head_dim]
+    for layer_idx, (layer, layer_attn) in enumerate(zip(past_key_values, attn_weights)):
+        k, v = layer[0], layer[1]   # [B, H, kv_len, head_dim]
         kv_len = k.shape[2]
 
         # layer_attn may be [B, H, q_len, attn_kv_len]; pad to kv_len if needed
@@ -120,10 +113,9 @@ def _update_and_evict(
             v = v[:, :, keep_idx, :]
             score = score[keep_idx]
 
-        new_layers.append((k, v))
+        new_cache.update(k, v, layer_idx)
         new_scores.append(score)
 
-    new_cache = DynamicCache.from_legacy_cache(tuple(new_layers))
     return new_cache, new_scores
 
 

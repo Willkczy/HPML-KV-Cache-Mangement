@@ -41,11 +41,12 @@ def _kv_memory_mb(past_key_values) -> float:
     """Sum of bytes used by all K and V tensors, converted to MB."""
     if past_key_values is None:
         return 0.0
-    total = 0
-    for layer_kv in past_key_values:
-        for tensor in layer_kv:
-            total += tensor.nelement() * tensor.element_size()
-    return total / (1024 ** 2)
+    # DynamicCache (transformers >= 4.38)
+    if hasattr(past_key_values, "key_cache"):
+        tensors = past_key_values.key_cache + past_key_values.value_cache
+    else:
+        tensors = [t for layer_kv in past_key_values for t in layer_kv]
+    return sum(t.nelement() * t.element_size() for t in tensors) / (1024 ** 2)
 
 
 # ── Core eviction logic ─────────────────────────────────────────────────────
@@ -59,9 +60,11 @@ def _update_and_evict(
 ):
     """Accumulate attention scores and evict over-budget tokens.
 
+    Supports both legacy tuple-of-tuples and DynamicCache (transformers >= 4.38).
+
     Args:
-        past_key_values: HuggingFace-style tuple of (k, v) per layer.
-            Each k/v has shape [B, H, kv_len, head_dim].
+        past_key_values: HuggingFace cache — either a tuple of (k, v) per layer
+            or a DynamicCache object. Each k/v has shape [B, H, kv_len, head_dim].
         attn_weights: tuple of attention weight tensors per layer.
             Shape per layer: [B, H, q_len, kv_len].
         hh_scores: per-layer cumulative score tensors from the previous step,
@@ -73,54 +76,59 @@ def _update_and_evict(
         (new_past_key_values, new_hh_scores)
     """
     budget = hh_size + recent_size
-    new_pkv = []
     new_scores = []
 
-    for layer_idx, (layer_kv, layer_attn) in enumerate(
-        zip(past_key_values, attn_weights)
-    ):
-        k, v = layer_kv                        # [B, H, kv_len, head_dim]
+    use_dynamic_cache = hasattr(past_key_values, "key_cache")
+
+    if use_dynamic_cache:
+        num_layers = len(past_key_values.key_cache)
+        keys = past_key_values.key_cache
+        vals = past_key_values.value_cache
+    else:
+        num_layers = len(past_key_values)
+        keys = [layer_kv[0] for layer_kv in past_key_values]
+        vals = [layer_kv[1] for layer_kv in past_key_values]
+
+    for layer_idx in range(num_layers):
+        k = keys[layer_idx]   # [B, H, kv_len, head_dim]
+        v = vals[layer_idx]
+        layer_attn = attn_weights[layer_idx]
         kv_len = k.shape[2]
 
         # Sum attention over batch, heads, and query positions → [kv_len]
-        # This gives each KV position its "importance" in the current step.
-        step_score = layer_attn.sum(dim=(0, 1, 2)).detach()   # [kv_len]
+        step_score = layer_attn.sum(dim=(0, 1, 2)).detach()
 
-        # Accumulate with historical scores.
-        # step_score covers all kv_len positions (including the token just
-        # appended by the current forward pass).  hh_scores[layer_idx] covers
-        # the positions that survived the previous eviction, i.e. kv_len-1
-        # positions during decode, or kv_len positions during prefill.
         score = step_score.clone()
         if hh_scores is not None and hh_scores[layer_idx] is not None:
-            prev = hh_scores[layer_idx]          # [prev_kv_len]
-            score[: prev.shape[0]] += prev       # accumulate onto matching positions
+            prev = hh_scores[layer_idx]
+            score[: prev.shape[0]] += prev
 
-        # Evict if over budget.
         if kv_len > budget:
             non_recent_len = kv_len - recent_size
 
             if non_recent_len <= 0:
-                # budget < recent_size edge case — keep the last `budget` tokens
                 keep_idx = torch.arange(kv_len - budget, kv_len, device=k.device)
             else:
                 non_recent_scores = score[:non_recent_len]
                 actual_hh = min(hh_size, non_recent_len)
                 _, top_idx = non_recent_scores.topk(actual_hh, largest=True)
-                top_idx = top_idx.sort().values                            # preserve order
+                top_idx = top_idx.sort().values
                 recent_idx = torch.arange(
                     kv_len - recent_size, kv_len, device=k.device
                 )
                 keep_idx = torch.cat([top_idx, recent_idx])
 
-            k = k[:, :, keep_idx, :]
-            v = v[:, :, keep_idx, :]
+            keys[layer_idx] = k[:, :, keep_idx, :]
+            vals[layer_idx] = v[:, :, keep_idx, :]
             score = score[keep_idx]
 
-        new_pkv.append((k, v))
         new_scores.append(score)
 
-    return tuple(new_pkv), new_scores
+    if use_dynamic_cache:
+        # Edits were in-place on the DynamicCache lists
+        return past_key_values, new_scores
+    else:
+        return tuple(zip(keys, vals)), new_scores
 
 
 # ── BaseMethod implementation ────────────────────────────────────────────────
@@ -144,7 +152,7 @@ class H2OMethod(BaseMethod):
         # eager attention is required to materialise attention weights
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
-            torch_dtype=torch.float16,
+            dtype=torch.float16,
             device_map=device,
             trust_remote_code=True,
             attn_implementation="eager",

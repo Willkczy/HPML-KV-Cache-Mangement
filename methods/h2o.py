@@ -78,25 +78,29 @@ def _update_and_evict(
     budget = hh_size + recent_size
     new_scores = []
 
-    use_dynamic_cache = hasattr(past_key_values, "key_cache")
+    is_dynamic = hasattr(past_key_values, "key_cache")
 
-    if use_dynamic_cache:
-        num_layers = len(past_key_values.key_cache)
-        keys = past_key_values.key_cache
-        vals = past_key_values.value_cache
+    if is_dynamic:
+        # Direct references to the DynamicCache's internal lists — edits are
+        # in-place, so we can return the original object unchanged.
+        key_cache = past_key_values.key_cache
+        val_cache = past_key_values.value_cache
     else:
-        num_layers = len(past_key_values)
-        keys = [layer_kv[0] for layer_kv in past_key_values]
-        vals = [layer_kv[1] for layer_kv in past_key_values]
+        key_cache = [kv[0] for kv in past_key_values]
+        val_cache = [kv[1] for kv in past_key_values]
 
-    for layer_idx in range(num_layers):
-        k = keys[layer_idx]   # [B, H, kv_len, head_dim]
-        v = vals[layer_idx]
-        layer_attn = attn_weights[layer_idx]
+    for layer_idx, layer_attn in enumerate(attn_weights):
+        k = key_cache[layer_idx]   # [B, H, kv_len, head_dim]
+        v = val_cache[layer_idx]
         kv_len = k.shape[2]
 
-        # Sum attention over batch, heads, and query positions → [kv_len]
-        step_score = layer_attn.sum(dim=(0, 1, 2)).detach()
+        # layer_attn shape: [B, H, q_len, attn_kv_len]
+        # In some transformers versions attn_kv_len may be < kv_len
+        # (e.g. only the query positions are returned). We zero-pad to kv_len
+        # so the score vector always matches the cache length.
+        attn_kv_len = layer_attn.shape[-1]
+        step_score = torch.zeros(kv_len, device=k.device, dtype=layer_attn.dtype)
+        step_score[:attn_kv_len] += layer_attn.sum(dim=(0, 1, 2)).detach()
 
         score = step_score.clone()
         if hh_scores is not None and hh_scores[layer_idx] is not None:
@@ -118,18 +122,24 @@ def _update_and_evict(
                 )
                 keep_idx = torch.cat([top_idx, recent_idx])
 
-            keys[layer_idx] = k[:, :, keep_idx, :]
-            vals[layer_idx] = v[:, :, keep_idx, :]
+            key_cache[layer_idx] = k[:, :, keep_idx, :]
+            val_cache[layer_idx] = v[:, :, keep_idx, :]
             score = score[keep_idx]
 
         new_scores.append(score)
 
-    # Always return a fresh DynamicCache so the model's get_seq_length()
-    # and position embedding logic sees a consistent object.
+    if is_dynamic:
+        # In-place edits already applied via list references.
+        # Return the original DynamicCache — critically, _seen_tokens is
+        # preserved so the model computes correct RoPE positions for future
+        # tokens (position = total tokens seen, not pruned cache size).
+        return past_key_values, new_scores
+
+    # Legacy tuple input: wrap pruned tensors in a DynamicCache.
     new_cache = DynamicCache()
-    new_cache.key_cache = keys
-    new_cache.value_cache = vals
-    new_cache._seen_tokens = keys[0].shape[2] if keys else 0
+    for k, v in zip(key_cache, val_cache):
+        new_cache.key_cache.append(k)
+        new_cache.value_cache.append(v)
     return new_cache, new_scores
 
 

@@ -31,21 +31,21 @@ from typing import Optional
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
+from transformers.cache_utils import DynamicCache
 
 from methods.base import BaseMethod, MethodOutput
 
 
 # ── KV memory helper ────────────────────────────────────────────────────────
 
-def _kv_memory_mb(past_key_values) -> float:
+def _kv_memory_mb(cache) -> float:
     """Sum of bytes used by all K and V tensors, converted to MB."""
-    if past_key_values is None:
+    if cache is None:
         return 0.0
-    # DynamicCache (transformers >= 4.38)
-    if hasattr(past_key_values, "key_cache"):
-        tensors = past_key_values.key_cache + past_key_values.value_cache
+    if isinstance(cache, DynamicCache):
+        tensors = cache.key_cache + cache.value_cache
     else:
-        tensors = [t for layer_kv in past_key_values for t in layer_kv]
+        tensors = [t for layer_kv in cache for t in layer_kv]
     return sum(t.nelement() * t.element_size() for t in tensors) / (1024 ** 2)
 
 
@@ -124,11 +124,13 @@ def _update_and_evict(
 
         new_scores.append(score)
 
-    if use_dynamic_cache:
-        # Edits were in-place on the DynamicCache lists
-        return past_key_values, new_scores
-    else:
-        return tuple(zip(keys, vals)), new_scores
+    # Always return a fresh DynamicCache so the model's get_seq_length()
+    # and position embedding logic sees a consistent object.
+    new_cache = DynamicCache()
+    new_cache.key_cache = keys
+    new_cache.value_cache = vals
+    new_cache._seen_tokens = keys[0].shape[2] if keys else 0
+    return new_cache, new_scores
 
 
 # ── BaseMethod implementation ────────────────────────────────────────────────

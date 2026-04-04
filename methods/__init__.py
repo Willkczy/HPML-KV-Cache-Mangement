@@ -8,14 +8,15 @@ Import from here so the run script stays method-agnostic:
 """
 
 from methods.base import BaseMethod, MethodOutput
+from methods.full_cache import FullCacheMethod
 from methods.h2o import H2OMethod
+from methods.streaming_llm import StreamingLLMMethod
 
 METHODS: dict[str, type[BaseMethod]] = {
+    "full_cache": FullCacheMethod,
     "h2o": H2OMethod,
-    # filled in by other team members:
-    # "full_cache":      FullCacheMethod,
+    "streaming_llm": StreamingLLMMethod,
     # "paged_attention": PagedAttentionMethod,
-    # "streaming_llm":   StreamingLLMMethod,
 }
 
 __all__ = ["BaseMethod", "MethodOutput", "METHODS"]

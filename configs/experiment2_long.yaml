@@ -1,0 +1,28 @@
+# Experiment 2 — Long Bucket (LongBench v2)
+experiment:
+  name: "exp2_long"
+  description: "Controlled single-request eval on LongBench v2 (8k-32k tokens)"
+
+model:
+  name: "Qwen/Qwen2.5-7B"
+  local_path: "~/models/qwen2.5-7b"
+  device: "cuda"
+
+data:
+  dataset: "longbench"
+  domains:                              # empty list = all domains
+    - "Single-Document QA"
+    - "Multi-Document QA"
+  num_samples_per_domain: 20            # cap per domain, -1 for all
+  difficulty: null                      # "easy", "hard", or null for all
+  prompt_style: "short"                 # "short" = just A/B/C/D answer
+  token_range:
+    min: 8000
+    max: 32000
+
+generation:
+  max_new_tokens: 10                    # multiple choice: A/B/C/D
+  temperature: 0.0
+
+output:
+  results_dir: "results/exp2_long"

@@ -101,7 +101,14 @@ class StreamingLLMMethod(BaseMethod):
     # ------------------------------------------------------------------
 
     def generate(self, prompt: str, max_new_tokens: int = 128, **kwargs) -> MethodOutput:
-        """Run StreamingLLM generation and collect timing + memory stats."""
+        """Run StreamingLLM generation and collect timing + memory stats.
+
+        Args:
+            start_size:  Override attention sink count for this call (default: self.start_size).
+            recent_size: Override sliding window size for this call (default: self.recent_size).
+        """
+        start_size  = kwargs.get("start_size",  self.start_size)
+        recent_size = kwargs.get("recent_size", self.recent_size)
 
         # ── Tokenize ──────────────────────────────────────────────────
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
@@ -125,7 +132,7 @@ class StreamingLLMMethod(BaseMethod):
         ttft_ms = (t_prefill - t_start) * 1000
 
         # Trim after prefill: if prompt already exceeds the window, evict now.
-        _trim_cache(past_key_values, self.start_size, self.recent_size)
+        _trim_cache(past_key_values, start_size, recent_size)
 
         # Record prefill peak before resetting — useful for debugging OOM
         # and quantifying how much memory the trim saves.
@@ -156,7 +163,7 @@ class StreamingLLMMethod(BaseMethod):
                 )
 
             past_key_values = out.past_key_values
-            _trim_cache(past_key_values, self.start_size, self.recent_size)
+            _trim_cache(past_key_values, start_size, recent_size)
 
             next_token_id = out.logits[:, -1, :].argmax(dim=-1, keepdim=True)
             generated_ids.append(next_token_id)
@@ -189,8 +196,8 @@ class StreamingLLMMethod(BaseMethod):
             peak_kv_memory_mb=peak_kv_memory_mb,
             metadata={
                 "method": "streaming_llm",
-                "start_size": self.start_size,
-                "recent_size": self.recent_size,
+                "start_size": start_size,
+                "recent_size": recent_size,
                 "prefill_peak_kv_memory_mb": round(prefill_peak_mb, 3),
             },
         )

@@ -127,6 +127,11 @@ class StreamingLLMMethod(BaseMethod):
         # Trim after prefill: if prompt already exceeds the window, evict now.
         _trim_cache(past_key_values, self.start_size, self.recent_size)
 
+        # Reset peak stats after trim so peak_kv_memory_mb reflects the
+        # decode-phase KV cache size, not the transient prefill allocation.
+        torch.cuda.reset_peak_memory_stats(self.device)
+        mem_before = torch.cuda.memory_allocated(self.device)
+
         # ── Decode (generate remaining tokens) ────────────────────────
         next_token_id = outputs_prefill.logits[:, -1, :].argmax(dim=-1, keepdim=True)
         generated_ids = [next_token_id]

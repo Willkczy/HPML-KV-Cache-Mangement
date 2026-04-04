@@ -123,8 +123,13 @@ def _load_mmlu(config: dict, tokenizer) -> list[Sample]:
 LONGBENCH_CHOICES = ["A", "B", "C", "D"]
 
 
-def _format_longbench_question(example: dict) -> str:
-    """Format a LongBench v2 question with context and lettered choices."""
+def _format_longbench_question(example: dict, prompt_style: str = "short") -> str:
+    """Format a LongBench v2 question with context and lettered choices.
+
+    Args:
+        prompt_style: "short" for just the answer letter,
+                      "explain" to ask for reasoning before answering.
+    """
     context = example["context"]
     question = example["question"]
     choices = [
@@ -136,7 +141,13 @@ def _format_longbench_question(example: dict) -> str:
     formatted = f"{context}\n\n{question}\n"
     for letter, choice in zip(LONGBENCH_CHOICES, choices):
         formatted += f"  {letter}. {choice}\n"
-    formatted += "Answer:"
+    if prompt_style == "explain":
+        formatted += (
+            "\nExplain your reasoning step by step, "
+            "then state your final answer as a single letter (A, B, C, or D)."
+        )
+    else:
+        formatted += "Answer:"
     return formatted
 
 
@@ -148,6 +159,7 @@ def _load_longbench(config: dict, tokenizer) -> list[Sample]:
     tok_min = data_cfg["token_range"]["min"]
     tok_max = data_cfg["token_range"]["max"]
     difficulty = data_cfg.get("difficulty", None)  # "easy", "hard", or None for all
+    prompt_style = data_cfg.get("prompt_style", "short")  # "short" or "explain"
 
     ds = load_dataset("THUDM/LongBench-v2", split="train")
 
@@ -170,7 +182,7 @@ def _load_longbench(config: dict, tokenizer) -> list[Sample]:
         if cap > 0 and domain_counts[domain] >= cap:
             continue
 
-        prompt = _format_longbench_question(example)
+        prompt = _format_longbench_question(example, prompt_style=prompt_style)
         reference = example["answer"]
 
         # Token count filter
@@ -198,11 +210,60 @@ def _load_longbench(config: dict, tokenizer) -> list[Sample]:
     return samples
 
 
+# ── GovReport summarization ───────────────────────────────────────────────
+
+def _format_govreport_prompt(report: str) -> str:
+    """Format a GovReport document for summarization."""
+    return (
+        f"Please read the following government report and write a concise summary.\n\n"
+        f"{report}\n\n"
+        f"Summary:"
+    )
+
+
+def _load_govreport(config: dict, tokenizer) -> list[Sample]:
+    """Load GovReport summarization samples filtered by token range."""
+    data_cfg = config["data"]
+    split = data_cfg.get("split", "test")
+    cap = data_cfg.get("num_samples", -1)
+    tok_min = data_cfg["token_range"]["min"]
+    tok_max = data_cfg["token_range"]["max"]
+
+    ds = load_dataset("ccdv/govreport-summarization", split=split)
+
+    samples = []
+    for i, example in enumerate(ds):
+        prompt = _format_govreport_prompt(example["report"])
+        reference = example["summary"]
+
+        token_count = len(tokenizer.encode(prompt))
+        if token_count < tok_min or token_count > tok_max:
+            continue
+
+        samples.append(Sample(
+            id=f"govreport_{i}",
+            prompt=prompt,
+            reference=reference,
+            dataset="govreport",
+            subset="govreport",
+            token_count=token_count,
+            metadata={
+                "reference_token_count": len(tokenizer.encode(reference)),
+            },
+        ))
+
+        if cap > 0 and len(samples) >= cap:
+            break
+
+    return samples
+
+
 # ── Public API ──────────────────────────────────────────────────────────────
 
 LOADERS = {
     "mmlu": _load_mmlu,
     "longbench": _load_longbench,
+    "govreport": _load_govreport,
 }
 
 

@@ -50,7 +50,10 @@ def parse_args():
     parser.add_argument("--start_size", type=int, default=4,
                         help="StreamingLLM: number of attention sink tokens.")
     parser.add_argument("--recent_size", type=int, default=256,
-                        help="StreamingLLM: size of the recent token window.")
+                        help="StreamingLLM/H2O: size of the recent token window.")
+    # H2O-specific
+    parser.add_argument("--hh_size", type=int, default=64,
+                        help="H2O: heavy-hitter budget.")
     return parser.parse_args()
 
 
@@ -152,6 +155,7 @@ def main():
         device=device,
         start_size=args.start_size,
         recent_size=args.recent_size,
+        hh_size=args.hh_size,
     )
 
     # Experiment loop

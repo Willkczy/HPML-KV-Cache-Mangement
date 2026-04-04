@@ -143,8 +143,8 @@ def _format_longbench_question(example: dict, prompt_style: str = "short") -> st
         formatted += f"  {letter}. {choice}\n"
     if prompt_style == "explain":
         formatted += (
-            "\nExplain your reasoning step by step, "
-            "then state your final answer as a single letter (A, B, C, or D)."
+            "\nFirst state your final answer as a single letter (A, B, C, or D), "
+            "then explain your reasoning step by step."
         )
     else:
         formatted += "Answer:"

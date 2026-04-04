@@ -1,0 +1,28 @@
+# Experiment 2 — Long Bucket (LongBench v2, explain reasoning)
+experiment:
+  name: "exp2_long_explain"
+  description: "LongBench v2 with chain-of-thought explanation (8k-32k tokens, longer generation)"
+
+model:
+  name: "Qwen/Qwen2.5-7B"
+  local_path: "~/models/qwen2.5-7b"
+  device: "cuda"
+
+data:
+  dataset: "longbench"
+  domains:
+    - "Single-Document QA"
+    - "Multi-Document QA"
+  num_samples_per_domain: 20
+  difficulty: null
+  prompt_style: "explain"               # ask model to reason before answering
+  token_range:
+    min: 8000
+    max: 32000
+
+generation:
+  max_new_tokens: 512                   # longer generation for explanation
+  temperature: 0.0
+
+output:
+  results_dir: "results/exp2_long_explain"

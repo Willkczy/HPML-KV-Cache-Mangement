@@ -11,6 +11,11 @@ Checks:
     5. Teardown frees GPU memory
 """
 
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).parent.parent))
+
 import torch
 from methods.streaming_llm import StreamingLLMMethod
 

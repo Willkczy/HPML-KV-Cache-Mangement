@@ -1,4 +1,4 @@
-"""Experiment 1 runner — MMLU short bucket.
+"""Experiment runner — supports MMLU, LongBench v2, and GovReport.
 
 Usage:
     python scripts/run_experiment1.py \
@@ -22,6 +22,7 @@ Usage:
 import argparse
 import json
 import os
+import re
 import sys
 import time
 from pathlib import Path
@@ -38,7 +39,7 @@ from methods import METHODS
 # ── Argument parsing ───────────────────────────────────────────────────────────
 
 def parse_args():
-    parser = argparse.ArgumentParser(description="Run a single KV cache method on MMLU.")
+    parser = argparse.ArgumentParser(description="Run a single KV cache method.")
     parser.add_argument("--config", required=True, help="Path to YAML config file.")
     parser.add_argument("--method", required=True, choices=list(METHODS.keys()),
                         help="Which method to run.")
@@ -52,14 +53,65 @@ def parse_args():
     return parser.parse_args()
 
 
-# ── Accuracy helpers ───────────────────────────────────────────────────────────
+# ── Answer extraction ─────────────────────────────────────────────────────────
 
-def extract_mmlu_answer(generated_text: str) -> str:
-    """Return the first A/B/C/D found in the generated text, or '' if none."""
-    for char in generated_text.strip():
-        if char in ("A", "B", "C", "D"):
-            return char
+def extract_answer(generated_text: str) -> str:
+    """Extract A/B/C/D answer from generated text.
+
+    Handles short answers ("B"), preambles ("The answer is B"),
+    and chain-of-thought ("...therefore the answer is D").
+    Prefers structured patterns; falls back to last standalone letter.
+    """
+    text = generated_text.strip()
+
+    # Try structured patterns first (last match wins)
+    patterns = [
+        r'[Aa]nswer\s*(?:is|:)\s*([A-D])',
+        r'\b([A-D])\b\s*$',              # single letter at end
+        r'^\s*([A-D])\b',                # single letter at start
+    ]
+    for pattern in patterns:
+        matches = re.findall(pattern, text)
+        if matches:
+            return matches[-1].upper()
+
+    # Fallback: last standalone A/B/C/D
+    matches = re.findall(r'\b([A-D])\b', text)
+    if matches:
+        return matches[-1].upper()
+
     return ""
+
+
+# ── ROUGE-L for summarization ────────────────────────────────────────────────
+
+def _lcs_length(x: list[str], y: list[str]) -> int:
+    """Compute length of the longest common subsequence."""
+    m, n = len(x), len(y)
+    prev = [0] * (n + 1)
+    for i in range(1, m + 1):
+        curr = [0] * (n + 1)
+        for j in range(1, n + 1):
+            if x[i - 1] == y[j - 1]:
+                curr[j] = prev[j - 1] + 1
+            else:
+                curr[j] = max(curr[j - 1], prev[j])
+        prev = curr
+    return prev[n]
+
+
+def compute_rouge_l(prediction: str, reference: str) -> float:
+    """Compute ROUGE-L F1 score between prediction and reference."""
+    pred_tokens = prediction.lower().split()
+    ref_tokens = reference.lower().split()
+    if not pred_tokens or not ref_tokens:
+        return 0.0
+    lcs = _lcs_length(pred_tokens, ref_tokens)
+    precision = lcs / len(pred_tokens)
+    recall = lcs / len(ref_tokens)
+    if precision + recall == 0:
+        return 0.0
+    return 2 * precision * recall / (precision + recall)
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────
@@ -71,12 +123,16 @@ def main():
     with open(args.config) as f:
         config = yaml.safe_load(f)
 
+    dataset_name = config["data"]["dataset"]
     model_name  = config["model"].get("local_path") or config["model"]["name"]
     model_name  = os.path.expanduser(model_name)
     device      = config["model"]["device"]
     max_new_tokens = config["generation"]["max_new_tokens"]
     results_dir = Path(config["output"]["results_dir"])
     results_dir.mkdir(parents=True, exist_ok=True)
+
+    # Determine evaluation mode based on dataset
+    use_rouge = dataset_name == "govreport"
 
     # Load samples
     print(f"\n[runner] Loading samples from {args.config} ...")
@@ -107,15 +163,13 @@ def main():
         output = method.generate(sample.prompt, max_new_tokens=max_new_tokens)
         wall_s = time.perf_counter() - t0
 
-        predicted = extract_mmlu_answer(output.generated_text)
-        correct   = predicted == sample.reference
-
         throughput = (output.generated_tokens / output.total_time_ms * 1000
                       if output.total_time_ms > 0 else 0.0)
 
         record = {
             "id":                 sample.id,
             "subset":             sample.subset,
+            "dataset":            dataset_name,
             "prompt_tokens":      output.prompt_tokens,
             "generated_tokens":   output.generated_tokens,
             "ttft_ms":            round(output.ttft_ms, 3),
@@ -123,32 +177,41 @@ def main():
             "total_time_ms":      round(output.total_time_ms, 3),
             "throughput_tok_s":   round(throughput, 2),
             "peak_kv_memory_mb":  round(output.peak_kv_memory_mb, 3),
-            "predicted":          predicted,
+            "generated_text":     output.generated_text,
             "reference":          sample.reference,
-            "correct":            correct,
         }
+
+        if use_rouge:
+            rouge_l = compute_rouge_l(output.generated_text, sample.reference)
+            record["rouge_l"] = round(rouge_l, 4)
+            quality_str = f"ROUGE-L={rouge_l:.3f}"
+        else:
+            predicted = extract_answer(output.generated_text)
+            correct = predicted == sample.reference
+            record["predicted"] = predicted
+            record["correct"] = correct
+            quality_str = f"{'✓' if correct else '✗'} ({predicted or '?'} vs {sample.reference})"
+
         records.append(record)
 
         print(f"  [{i+1:>3}/{n}] {sample.id:<45} "
               f"TTFT={output.ttft_ms:6.1f}ms  "
               f"decode={output.decode_latency_ms:6.1f}ms  "
               f"mem={output.peak_kv_memory_mb:6.1f}MB  "
-              f"{'✓' if correct else '✗'} ({predicted or '?'} vs {sample.reference})")
+              f"{quality_str}")
 
     # Teardown
     method.teardown()
 
     # Aggregate metrics
-    n_correct = sum(r["correct"] for r in records)
-    accuracy  = n_correct / len(records) if records else 0.0
     avg = lambda key: sum(r[key] for r in records) / len(records) if records else 0.0
 
     summary = {
         "method":              args.method,
         "config":              args.config,
+        "dataset":             dataset_name,
         "model":               model_name,
         "n_samples":           len(records),
-        "accuracy":            round(accuracy, 4),
         "avg_ttft_ms":         round(avg("ttft_ms"), 3),
         "avg_decode_latency_ms": round(avg("decode_latency_ms"), 3),
         "avg_total_time_ms":   round(avg("total_time_ms"), 3),
@@ -158,8 +221,19 @@ def main():
 
     print(f"\n{'='*60}")
     print(f"  Method:    {args.method}")
+    print(f"  Dataset:   {dataset_name}")
     print(f"  Samples:   {len(records)}")
-    print(f"  Accuracy:  {accuracy:.1%}  ({n_correct}/{len(records)})")
+
+    if use_rouge:
+        avg_rouge = avg("rouge_l")
+        summary["avg_rouge_l"] = round(avg_rouge, 4)
+        print(f"  Avg ROUGE-L:       {avg_rouge:.4f}")
+    else:
+        n_correct = sum(r["correct"] for r in records)
+        accuracy = n_correct / len(records) if records else 0.0
+        summary["accuracy"] = round(accuracy, 4)
+        print(f"  Accuracy:  {accuracy:.1%}  ({n_correct}/{len(records)})")
+
     print(f"  Avg TTFT:          {summary['avg_ttft_ms']:.1f} ms")
     print(f"  Avg decode:        {summary['avg_decode_latency_ms']:.1f} ms")
     print(f"  Avg throughput:    {summary['avg_throughput_tok_s']:.1f} tok/s")

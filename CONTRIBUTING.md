@@ -44,6 +44,10 @@ Each team member runs their own GCP VM for **development and debugging**.
 GitHub is the single source of truth for code; VMs are disposable execution
 environments.
 
+> **📖 For the full step-by-step guide** (including network setup, venv
+> pitfalls, and troubleshooting), see **[docs/VM_SETUP.md](docs/VM_SETUP.md)**.
+> The quick-start below is a condensed version.
+
 > **⚠️ Dev vs. Benchmark — Important GPU Note**
 >
 > **Development phase:** Your VM's GPU type does not need to match others
@@ -160,15 +164,17 @@ gcloud compute instances create kvcache-benchmark \
 # 1. Make sure all methods are merged into dev
 git checkout dev && git pull origin dev
 
-# 2. Run every method on the same machine, same GPU
-for method in full_cache paged_attention h2o streaming_llm; do
-    python scripts/run_experiment1.py \
-        --config configs/experiment1_short.yaml \
-        --method $method
+# 2. Run every method on the same machine, same GPU, for each config
+for config in experiment1_short experiment2_long experiment2_long_explain experiment2_summarization; do
+    for method in full_cache paged_attention h2o streaming_llm; do
+        python scripts/run_experiment1.py \
+            --config configs/${config}.yaml \
+            --method $method
+    done
 done
 
 # 3. Upload official results
-gsutil cp -r results/exp1_short/ gs://<your-bucket>/results/official/exp1_short/
+gsutil cp -r results/ gs://<your-bucket>/results/official/
 ```
 
 **Why this matters:**

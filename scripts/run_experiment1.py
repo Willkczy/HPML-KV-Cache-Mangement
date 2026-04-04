@@ -25,6 +25,7 @@ import os
 import re
 import sys
 import time
+import torch
 from pathlib import Path
 
 # Allow running as `python scripts/run_experiment1.py` from the project root
@@ -160,12 +161,41 @@ def main():
 
     for i, sample in enumerate(samples):
         t0 = time.perf_counter()
-        output = method.generate(sample.prompt, max_new_tokens=max_new_tokens)
+
+        try:
+            output = method.generate(sample.prompt, max_new_tokens=max_new_tokens)
+        except torch.cuda.OutOfMemoryError:
+            torch.cuda.empty_cache()
+            print(f"  [{i+1:>3}/{n}] {sample.id:<45} "
+                  f"OOM at {sample.token_count} prompt tokens — skipped")
+            oom_record = {
+                "id":                 sample.id,
+                "subset":             sample.subset,
+                "dataset":            dataset_name,
+                "prompt_tokens":      sample.token_count,
+                "generated_tokens":   0,
+                "ttft_ms":            0,
+                "decode_latency_ms":  0,
+                "total_time_ms":      0,
+                "throughput_tok_s":   0,
+                "peak_kv_memory_mb":  0,
+                "generated_text":     "",
+                "reference":          sample.reference,
+                "oom":                True,
+            }
+            if use_rouge:
+                oom_record["rouge_l"] = 0.0
+            else:
+                oom_record["predicted"] = ""
+                oom_record["correct"] = False
+            records.append(oom_record)
+            continue
+
         wall_s = time.perf_counter() - t0
 
         throughput = (output.generated_tokens / output.total_time_ms * 1000
                       if output.total_time_ms > 0 else 0.0)
-
+ 
         record = {
             "id":                 sample.id,
             "subset":             sample.subset,
@@ -179,6 +209,7 @@ def main():
             "peak_kv_memory_mb":  round(output.peak_kv_memory_mb, 3),
             "generated_text":     output.generated_text,
             "reference":          sample.reference,
+            "oom":                False,
         }
 
         if use_rouge:
@@ -204,7 +235,10 @@ def main():
     method.teardown()
 
     # Aggregate metrics
-    avg = lambda key: sum(r[key] for r in records) / len(records) if records else 0.0
+    valid_records = [r for r in records if not r.get("oom")]
+    n_oom = len(records) - len(valid_records)
+    avg = lambda key: (sum(r[key] for r in valid_records) / len(valid_records)
+                       if valid_records else 0.0)
 
     summary = {
         "method":              args.method,
@@ -212,6 +246,7 @@ def main():
         "dataset":             dataset_name,
         "model":               model_name,
         "n_samples":           len(records),
+        "n_oom":               n_oom,
         "avg_ttft_ms":         round(avg("ttft_ms"), 3),
         "avg_decode_latency_ms": round(avg("decode_latency_ms"), 3),
         "avg_total_time_ms":   round(avg("total_time_ms"), 3),
@@ -222,18 +257,18 @@ def main():
     print(f"\n{'='*60}")
     print(f"  Method:    {args.method}")
     print(f"  Dataset:   {dataset_name}")
-    print(f"  Samples:   {len(records)}")
+    print(f"  Samples:   {len(records)} ({n_oom} OOM)")
 
     if use_rouge:
         avg_rouge = avg("rouge_l")
         summary["avg_rouge_l"] = round(avg_rouge, 4)
         print(f"  Avg ROUGE-L:       {avg_rouge:.4f}")
     else:
-        n_correct = sum(r["correct"] for r in records)
-        accuracy = n_correct / len(records) if records else 0.0
+        n_correct = sum(r["correct"] for r in valid_records)
+        accuracy = n_correct / len(valid_records) if valid_records else 0.0
         summary["accuracy"] = round(accuracy, 4)
-        print(f"  Accuracy:  {accuracy:.1%}  ({n_correct}/{len(records)})")
-
+        print(f"  Accuracy:  {accuracy:.1%}  ({n_correct}/{len(valid_records)})")
+ 
     print(f"  Avg TTFT:          {summary['avg_ttft_ms']:.1f} ms")
     print(f"  Avg decode:        {summary['avg_decode_latency_ms']:.1f} ms")
     print(f"  Avg throughput:    {summary['avg_throughput_tok_s']:.1f} tok/s")

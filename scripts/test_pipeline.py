@@ -1,8 +1,22 @@
-"""Quick test for the data pipeline. No GPU needed."""
+"""Quick test for the data pipeline. No GPU needed.
+
+Usage:
+    python scripts/test_pipeline.py                              # default: MMLU
+    python scripts/test_pipeline.py --config configs/experiment2_long.yaml  # LongBench
+"""
+
+import sys
+import argparse
+
+sys.path.insert(0, ".")
 
 from data.pipeline import load_samples
 
-config_path = "configs/experiment1_short.yaml"
+parser = argparse.ArgumentParser()
+parser.add_argument("--config", default="configs/experiment1_short.yaml")
+args = parser.parse_args()
+
+config_path = args.config
 samples = load_samples(config_path)
 
 print(f"\nTotal samples: {len(samples)}")

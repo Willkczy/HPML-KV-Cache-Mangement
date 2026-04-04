@@ -12,7 +12,7 @@ KV cache is the dominant memory bottleneck during LLM inference. As context leng
 |--------|----------|---------------|-------|
 | **Full Cache** | Store all KV pairs (baseline) | HuggingFace Transformers | Hung-Kai Huang |
 | **PagedAttention** | Block-based non-contiguous allocation | vLLM | Kane Wang |
-| **H2O** | Attention-driven selective eviction | Official H2O repo | TBD |
+| **H2O** | Attention-driven selective eviction | Official H2O repo | Sripad Karne |
 | **StreamingLLM** | Sliding window + attention sinks | Official StreamingLLM repo | Ting-Feng Huang |
 
 Every method implements the same `BaseMethod` interface (see `methods/base.py`), taking identical inputs and returning a standardized `MethodOutput` so that data loading, experiment orchestration, and evaluation are fully shared.
@@ -27,7 +27,10 @@ kv-cache-bench/
 ├── .gitignore
 │
 ├── configs/                   ← experiment configs (YAML)
-│   └── experiment1_short.yaml
+│   ├── experiment1_short.yaml          ← MMLU, 128-512 tokens
+│   ├── experiment2_long.yaml           ← LongBench v2, short answer
+│   ├── experiment2_long_explain.yaml   ← LongBench v2, explain reasoning
+│   └── experiment2_summarization.yaml  ← GovReport, summarization
 │
 ├── data/                      ← shared data pipeline
 │   ├── __init__.py
@@ -46,7 +49,8 @@ kv-cache-bench/
 │   └── metrics.py             ← accuracy, ROUGE-L, perplexity, latency stats
 │
 ├── scripts/                   ← experiment runners
-│   └── run_experiment1.py     ← loads config → loads data → runs method → evals
+│   ├── run_experiment1.py     ← loads config → loads data → runs method → evals
+│   └── test_pipeline.py       ← quick data pipeline test (no GPU needed)
 │
 └── results/                   ← local only (gitignored), upload to GCS
     └── .gitkeep
@@ -76,13 +80,19 @@ python scripts/run_experiment1.py \
 
 ### Experiment 1 — Controlled Long Context
 
-Single-request evaluation (no batching) across three context-length buckets. Each method processes the same samples.
+Single-request evaluation (no batching) across multiple context-length buckets. Each method processes the same samples.
 
-| Bucket | Dataset | Token Range |
-|--------|---------|-------------|
-| Short | MMLU | 128–256 |
-| Medium | CNN/DailyMail | 512–1024 |
-| Long | LongBench | 2048+ |
+| Bucket | Dataset | Config | Token Range | Generation |
+|--------|---------|--------|-------------|------------|
+| Short | MMLU | `experiment1_short.yaml` | 128–512 | 10 tokens (A/B/C/D) |
+| Long (short answer) | LongBench v2 | `experiment2_long.yaml` | 8k–32k | 10 tokens (A/B/C/D) |
+| Long (explain) | LongBench v2 | `experiment2_long_explain.yaml` | 8k–32k | 512 tokens |
+| Long (summarization) | GovReport | `experiment2_summarization.yaml` | 4k–16k | 512 tokens |
+
+The three long-context variants serve different measurement goals:
+- **Short answer** measures prefill-phase KV cache pressure (memory, TTFT)
+- **Explain** adds decode-phase stress — longer generation exposes quality degradation from KV eviction
+- **Summarization** provides reference summaries for ROUGE-L scoring of generation quality
 
 **Metrics collected:**
 
@@ -92,29 +102,27 @@ Single-request evaluation (no batching) across three context-length buckets. Eac
 | TTFT (ms) | Time to first token |
 | Decode Latency (ms) | Total generation time minus TTFT |
 | Throughput (tokens/sec) | Generated tokens per second |
-| Quality | MMLU → Accuracy, CNN/DM → ROUGE-L, LongBench → task-specific |
+| Quality | MMLU/LongBench → Accuracy, GovReport → ROUGE-L |
 
 **Profiling tools:** PyTorch Profiler, NVIDIA Nsight Systems
 
 ## How It Fits Together
 
 ```
-configs/experiment1_short.yaml
+configs/*.yaml                        → experiment config (dataset, token range, generation params)
         │
         ▼
 scripts/run_experiment1.py
         │
-        ├──► data/pipeline.py        → loads MMLU samples
+        ├──► data/pipeline.py        → loads dataset (MMLU / LongBench v2 / GovReport)
+        │                               returns list[Sample]
         │
-        ├──► methods/full_cache.py    → runs inference, returns MethodOutput
-        │    methods/paged_attention.py
-        │    methods/h2o.py
-        │    methods/streaming_llm.py
+        ├──► methods/<method>.py      → runs inference, returns MethodOutput
         │
         └──► eval/metrics.py          → computes accuracy, latency stats
                     │
                     ▼
-              results/exp1_short/     → JSON + profiling traces
+              results/                → JSON + profiling traces (gitignored)
 ```
 
 ## Key Interfaces
@@ -151,11 +159,18 @@ class Sample:
     id: str                # unique identifier
     prompt: str            # formatted prompt ready for the model
     reference: str         # ground truth for evaluation
-    dataset: str           # "mmlu", "cnn_dailymail", "longbench"
-    subset: str            # e.g., MMLU subject name
+    dataset: str           # "mmlu", "longbench", "govreport"
+    subset: str            # e.g., MMLU subject, LongBench sub_domain
     token_count: int       # pre-computed prompt token count
     metadata: dict         # dataset-specific fields
 ```
+
+**Registered dataset loaders** (in `data/pipeline.py` → `LOADERS` dict):
+- `mmlu` — `cais/mmlu` (few-shot multiple choice)
+- `longbench` — `THUDM/LongBench-v2` (long-context multiple choice, supports `prompt_style: "short"` or `"explain"`)
+- `govreport` — `ccdv/govreport-summarization` (government report → summary)
+
+Test any loader locally (no GPU): `python scripts/test_pipeline.py --config configs/<config>.yaml`
 
 ## Adding a New Method
 

@@ -54,6 +54,11 @@ class FullCacheMethod(BaseMethod):
         t_prefill = time.perf_counter()
         ttft_ms = (t_prefill - t_start) * 1000
 
+        # Record prefill peak, then reset for decode-phase measurement
+        prefill_peak_mb = (torch.cuda.max_memory_allocated(self.device) - mem_before) / (1024 ** 2)
+        torch.cuda.reset_peak_memory_stats(self.device)
+        mem_before = torch.cuda.memory_allocated(self.device)
+
     # ── Decode (generate remaining tokens) ────────────────────
         # Start from the last token of prefill
         next_token_id = outputs_prefill.logits[:, -1, :].argmax(dim=-1, keepdim=True)
@@ -97,7 +102,10 @@ class FullCacheMethod(BaseMethod):
             total_time_ms=total_time_ms,
             decode_latency_ms=decode_latency_ms,
             peak_kv_memory_mb=peak_kv_memory_mb,
-            metadata={"method": "full_cache"},
+            metadata={
+                "method": "full_cache",
+                "prefill_peak_kv_memory_mb": round(prefill_peak_mb, 3),
+            },
         )
     
     def teardown(self) -> None:

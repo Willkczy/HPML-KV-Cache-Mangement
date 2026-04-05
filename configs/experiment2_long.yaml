@@ -17,7 +17,7 @@ data:
   difficulty: null                      # "easy", "hard", or null for all
   prompt_style: "short"                 # "short" = just A/B/C/D answer
   token_range:
-    min: 8000
+    min: 4000
     max: 13000
 
 generation:

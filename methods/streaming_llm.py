@@ -143,16 +143,17 @@ class StreamingLLMMethod(BaseMethod):
 
         # Extract the first decode token from prefill logits, then free outputs_prefill.
         # The logits tensor is [batch, seq_len, vocab_size] — for long prompts this is
-        # several GB (e.g. 10k tokens × 152k vocab × fp16 ≈ 3 GB).  Freeing it before
-        # measuring decode KV ensures we capture only the trimmed KV cache footprint.
+        # several GB (e.g. 10k tokens × 152k vocab × fp16 ≈ 3 GB).  Free it before
+        # the decode phase so it does not inflate the KV memory measurement.
         next_token_id = outputs_prefill.logits[:, -1, :].argmax(dim=-1, keepdim=True)
         del outputs_prefill
 
-        # Decode KV memory = current allocation after trim minus model-only baseline.
-        # This is the ABSOLUTE KV cache size that decode will operate with —
-        # the fair comparison metric across methods (not a delta).
-        mem_after_trim = torch.cuda.memory_allocated(self.device)
-        decode_kv_mb = (mem_after_trim - self.model_memory_bytes) / (1024 ** 2)
+        # Reset peak stats so max_memory_allocated below only covers the decode phase.
+        # Measuring peak (not current) handles all prompt/window combinations:
+        #   prompt > window  → KV trimmed to window at start, constant → peak = window × 112KB
+        #   prompt ≤ window, prompt+decode > window → KV grows until trim fires → peak ≈ window × 112KB
+        #   prompt ≤ window, prompt+decode ≤ window → no trim fires, KV = prompt+decode → peak = actual usage
+        torch.cuda.reset_peak_memory_stats(self.device)
 
         # ── Decode (generate remaining tokens) ────────────────────────
         generated_ids = [next_token_id]
@@ -187,6 +188,11 @@ class StreamingLLMMethod(BaseMethod):
         # ── Collect results ───────────────────────────────────────────
         total_time_ms = (t_end - t_start) * 1000
         decode_latency_ms = total_time_ms - ttft_ms
+
+        # Peak KV memory during decode = peak allocation - model-only baseline.
+        # Because we reset peak stats before the decode loop, this captures the
+        # true maximum KV footprint regardless of whether trim fired or not.
+        decode_kv_mb = (torch.cuda.max_memory_allocated(self.device) - self.model_memory_bytes) / (1024 ** 2)
 
         all_token_ids = torch.cat(generated_ids, dim=-1)
         generated_text = self.tokenizer.decode(

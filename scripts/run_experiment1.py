@@ -207,6 +207,7 @@ def main():
             "total_time_ms":      round(output.total_time_ms, 3),
             "throughput_tok_s":   round(throughput, 2),
             "peak_kv_memory_mb":  round(output.peak_kv_memory_mb, 3),
+            "prefill_peak_kv_memory_mb": round(output.metadata.get("prefill_peak_kv_memory_mb", output.peak_kv_memory_mb), 3),
             "generated_text":     output.generated_text,
             "reference":          sample.reference,
             "oom":                False,

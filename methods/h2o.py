@@ -162,6 +162,10 @@ class H2OMethod(BaseMethod):
         past_key_values = None
         hh_scores = None
         peak_kv_mb = 0.0
+        # next_pos tracks the absolute position of the token we're about to
+        # generate. We pass it as position_ids so the model uses the correct
+        # RoPE offset regardless of how many tokens remain in the pruned cache.
+        next_pos = prompt_tokens
 
         with torch.no_grad():
             # ── Prefill ──────────────────────────────────────────────────────
@@ -180,11 +184,6 @@ class H2OMethod(BaseMethod):
             next_token = outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
             generated_ids.append(next_token.item())
 
-            # seen_tokens = total tokens processed so far (prompt + generated).
-            # We must preserve this on the DynamicCache after eviction so the
-            # model computes correct RoPE positions for future decode tokens.
-            seen_tokens = prompt_tokens + 1
-
             past_key_values, hh_scores = _update_and_evict(
                 outputs.past_key_values,
                 outputs.attentions,
@@ -192,7 +191,6 @@ class H2OMethod(BaseMethod):
                 hh_size,
                 recent_size,
             )
-            past_key_values._seen_tokens = seen_tokens
             peak_kv_mb = max(peak_kv_mb, _kv_memory_mb(past_key_values))
 
             if next_token.item() == eos_id or max_new_tokens <= 1:
@@ -205,9 +203,18 @@ class H2OMethod(BaseMethod):
 
             # ── Decode ───────────────────────────────────────────────────────
             for _ in range(max_new_tokens - 1):
+                # Explicit position_ids = absolute position of this token in the
+                # original sequence. This bypasses DynamicCache._seen_tokens so
+                # RoPE embeddings are always correct even after eviction.
+                position_ids = torch.tensor(
+                    [[next_pos]], device=self.device, dtype=torch.long
+                )
+                next_pos += 1
+
                 outputs = self.model(
                     input_ids=next_token,
                     past_key_values=past_key_values,
+                    position_ids=position_ids,
                     output_attentions=True,
                     use_cache=True,
                 )
@@ -215,7 +222,6 @@ class H2OMethod(BaseMethod):
                 next_token = outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
                 generated_ids.append(next_token.item())
 
-                seen_tokens += 1
                 past_key_values, hh_scores = _update_and_evict(
                     outputs.past_key_values,
                     outputs.attentions,
@@ -223,7 +229,6 @@ class H2OMethod(BaseMethod):
                     hh_size,
                     recent_size,
                 )
-                past_key_values._seen_tokens = seen_tokens
                 peak_kv_mb = max(peak_kv_mb, _kv_memory_mb(past_key_values))
 
                 if next_token.item() == eos_id:

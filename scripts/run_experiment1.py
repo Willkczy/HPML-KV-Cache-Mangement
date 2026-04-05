@@ -51,6 +51,11 @@ def parse_args():
                         help="StreamingLLM: number of attention sink tokens.")
     parser.add_argument("--recent_size", type=int, default=256,
                         help="StreamingLLM: size of the recent token window.")
+    # PagedAttention-specific (ignored by other methods via **kwargs)
+    parser.add_argument("--block_size", type=int, default=16,
+                        help="PagedAttention: tokens per KV block.")
+    parser.add_argument("--max_model_len", type=int, default=4096,
+                        help="PagedAttention: max sequence length for vLLM engine.")
     return parser.parse_args()
 
 
@@ -152,6 +157,9 @@ def main():
         device=device,
         start_size=args.start_size,
         recent_size=args.recent_size,
+        hh_size=args.hh_size,
+        block_size=args.block_size,
+        max_model_len=args.max_model_len,
     )
 
     # Experiment loop

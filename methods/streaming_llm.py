@@ -118,8 +118,9 @@ class StreamingLLMMethod(BaseMethod):
         input_ids = inputs["input_ids"]
         prompt_tokens = input_ids.shape[1]
 
-        # ── Memory baseline ───────────────────────────────────────────
+        # ── Memory baseline (after tokenization, before prefill) ─────
         torch.cuda.reset_peak_memory_stats(self.device)
+        mem_before = torch.cuda.memory_allocated(self.device)  # model + input_ids
 
         # ── Prefill (measures TTFT) ───────────────────────────────────
         torch.cuda.synchronize()
@@ -143,10 +144,9 @@ class StreamingLLMMethod(BaseMethod):
         next_token_id = outputs_prefill.logits[:, -1, :].argmax(dim=-1, keepdim=True)
         del outputs_prefill
 
-        # Prefill KV memory = current memory after trim + logits freed, minus model baseline.
-        # Uses memory_allocated() (not peak) because we want the actual KV footprint
-        # after eviction, not the transient peak that included logits and full-prompt KV.
-        prefill_kv_mb = (torch.cuda.memory_allocated(self.device) - self.model_memory_bytes) / (1024 ** 2)
+        # Prefill KV memory = (model + input_ids + trimmed KV) - (model + input_ids)
+        # = true KV footprint after eviction, without logits inflation.
+        prefill_kv_mb = (torch.cuda.memory_allocated(self.device) - mem_before) / (1024 ** 2)
 
         # Reset peak stats so max_memory_allocated below only covers the decode phase.
         # Measuring peak (not current) handles all prompt/window combinations:

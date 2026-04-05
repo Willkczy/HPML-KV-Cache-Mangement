@@ -18,7 +18,7 @@ data:
   prompt_style: "short"                 # "short" = just A/B/C/D answer
   token_range:
     min: 8000
-    max: 32000
+    max: 16000
 
 generation:
   max_new_tokens: 10                    # multiple choice: A/B/C/D

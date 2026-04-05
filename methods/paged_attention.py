@@ -4,6 +4,11 @@ vLLM implements PagedAttention natively — KV cache is managed in fixed-size
 blocks with a block table for non-contiguous memory allocation.  This removes
 internal fragmentation and lets requests share physical memory pages.
 
+To ensure fair benchmarking against HuggingFace-based methods, we disable
+vLLM's implicit optimizations:
+  - enforce_eager=True          → disables CUDA graph capture
+  - compilation_config level=0  → disables torch.compile / CUDA graphs
+
 Requires: pip install vllm
 """
 
@@ -11,6 +16,7 @@ import time
 
 import torch
 from vllm import LLM, SamplingParams
+from vllm.config import CompilationConfig
 
 from methods.base import BaseMethod, MethodOutput
 
@@ -19,7 +25,14 @@ class PagedAttentionMethod(BaseMethod):
     """PagedAttention via vLLM's block-based KV cache manager."""
 
     def setup(self, model_name: str, device: str = "cuda", **kwargs) -> None:
-        """Load the vLLM engine, which pre-allocates the KV block pool."""
+        """Load the vLLM engine, which pre-allocates the KV block pool.
+
+        Keyword args forwarded:
+            gpu_memory_utilization (float): fraction of GPU for KV pool (default 0.90)
+            max_model_len (int): max sequence length (default 4096)
+            block_size (int): tokens per KV block (default 16)
+            enforce_eager (bool): disable CUDA graphs (default True for fair benchmarking)
+        """
         gpu_memory_utilization = kwargs.get("gpu_memory_utilization", 0.90)
         max_model_len = kwargs.get("max_model_len", 4096)
         block_size = kwargs.get("block_size", 16)
@@ -38,7 +51,9 @@ class PagedAttentionMethod(BaseMethod):
             max_model_len=max_model_len,
             block_size=block_size,
             dtype="auto",
-            enforce_eager=kwargs.get("enforce_eager", False),
+            # ── Disable implicit optimizations for fair benchmarking ──
+            enforce_eager=kwargs.get("enforce_eager", True),
+            compilation_config=CompilationConfig(level=0),
         )
 
         self.engine_memory_mb = (
@@ -61,7 +76,7 @@ class PagedAttentionMethod(BaseMethod):
         gives the true per-request KV footprint for apples-to-apples
         comparison with methods that allocate KV on the fly.
         """
-        model_config = self.llm.llm_engine.model_config
+        model_config = self.llm.model_config
         hf_config = model_config.hf_config
 
         num_layers = hf_config.num_hidden_layers
@@ -107,6 +122,9 @@ class PagedAttentionMethod(BaseMethod):
         prompt_token_ids = self.tokenizer.encode(prompt)
         prompt_tokens = len(prompt_token_ids)
 
+        # --- KV memory: prefill estimate (prompt-only, before decode) ---
+        prefill_kv_mb = self._estimate_kv_memory_mb(prompt_tokens)
+
         # --- timing ---
         torch.cuda.synchronize(self.device)
         start = time.perf_counter()
@@ -125,7 +143,9 @@ class PagedAttentionMethod(BaseMethod):
         # --- TTFT ---
         ttft_ms = self._extract_ttft(request_output)
         if ttft_ms is None or ttft_ms <= 0.0:
-            # Fallback: linear estimate (prefill ∝ prompt tokens)
+            # Fallback: estimate TTFT proportional to prompt length.
+            # In single-request mode, prefill dominates the prompt portion
+            # and decode is roughly linear in generated tokens.
             if generated_tokens > 0:
                 ttft_ms = total_time_ms * prompt_tokens / (prompt_tokens + generated_tokens)
             else:
@@ -133,7 +153,7 @@ class PagedAttentionMethod(BaseMethod):
 
         decode_latency_ms = max(total_time_ms - ttft_ms, 0.0)
 
-        # --- KV memory ---
+        # --- KV memory: total (prompt + generated) ---
         total_tokens = prompt_tokens + generated_tokens
         estimated_kv_mb = self._estimate_kv_memory_mb(total_tokens)
         num_blocks = -(-total_tokens // self.block_size)  # ceil division
@@ -152,6 +172,7 @@ class PagedAttentionMethod(BaseMethod):
                 "block_size": self.block_size,
                 "num_blocks_used": num_blocks,
                 "estimated_kv_mb": round(estimated_kv_mb, 2),
+                "prefill_peak_kv_memory_mb": round(prefill_kv_mb, 3),
                 "engine_memory_mb": round(self.engine_memory_mb, 2),
             },
         )

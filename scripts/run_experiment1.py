@@ -54,6 +54,11 @@ def parse_args():
     # H2O-specific
     parser.add_argument("--hh_size", type=int, default=64,
                         help="H2O: heavy-hitter budget.")
+    # PagedAttention-specific (ignored by other methods via **kwargs)
+    parser.add_argument("--block_size", type=int, default=16,
+                        help="PagedAttention: tokens per KV block.")
+    parser.add_argument("--max_model_len", type=int, default=4096,
+                        help="PagedAttention: max sequence length for vLLM engine.")
     return parser.parse_args()
 
 
@@ -156,6 +161,8 @@ def main():
         start_size=args.start_size,
         recent_size=args.recent_size,
         hh_size=args.hh_size,
+        block_size=args.block_size,
+        max_model_len=args.max_model_len,
     )
 
     # Experiment loop

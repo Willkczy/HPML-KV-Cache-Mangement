@@ -180,6 +180,11 @@ class H2OMethod(BaseMethod):
             next_token = outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
             generated_ids.append(next_token.item())
 
+            # seen_tokens = total tokens processed so far (prompt + generated).
+            # We must preserve this on the DynamicCache after eviction so the
+            # model computes correct RoPE positions for future decode tokens.
+            seen_tokens = prompt_tokens + 1
+
             past_key_values, hh_scores = _update_and_evict(
                 outputs.past_key_values,
                 outputs.attentions,
@@ -187,6 +192,7 @@ class H2OMethod(BaseMethod):
                 hh_size,
                 recent_size,
             )
+            past_key_values._seen_tokens = seen_tokens
             peak_kv_mb = max(peak_kv_mb, _kv_memory_mb(past_key_values))
 
             if next_token.item() == eos_id or max_new_tokens <= 1:
@@ -209,6 +215,7 @@ class H2OMethod(BaseMethod):
                 next_token = outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
                 generated_ids.append(next_token.item())
 
+                seen_tokens += 1
                 past_key_values, hh_scores = _update_and_evict(
                     outputs.past_key_values,
                     outputs.attentions,
@@ -216,6 +223,7 @@ class H2OMethod(BaseMethod):
                     hh_size,
                     recent_size,
                 )
+                past_key_values._seen_tokens = seen_tokens
                 peak_kv_mb = max(peak_kv_mb, _kv_memory_mb(past_key_values))
 
                 if next_token.item() == eos_id:

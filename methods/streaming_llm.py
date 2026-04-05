@@ -137,10 +137,6 @@ class StreamingLLMMethod(BaseMethod):
         # Trim after prefill: if prompt already exceeds the window, evict now.
         _trim_cache(past_key_values, start_size, recent_size)
 
-        # Record prefill peak before resetting — useful for debugging OOM
-        # and quantifying how much memory the trim saves.
-        prefill_peak_mb = (torch.cuda.max_memory_allocated(self.device) - mem_before) / (1024 ** 2)
-
         # Prefill peak = max memory allocated during prefill (before trim).
         # Useful for understanding OOM risk and prefill cost.
         prefill_peak_mb = (torch.cuda.max_memory_allocated(self.device) - mem_before) / (1024 ** 2)

@@ -141,6 +141,13 @@ class StreamingLLMMethod(BaseMethod):
         # Useful for understanding OOM risk and prefill cost.
         prefill_peak_mb = (torch.cuda.max_memory_allocated(self.device) - mem_before) / (1024 ** 2)
 
+        # Extract the first decode token from prefill logits, then free outputs_prefill.
+        # The logits tensor is [batch, seq_len, vocab_size] — for long prompts this is
+        # several GB (e.g. 10k tokens × 152k vocab × fp16 ≈ 3 GB).  Freeing it before
+        # measuring decode KV ensures we capture only the trimmed KV cache footprint.
+        next_token_id = outputs_prefill.logits[:, -1, :].argmax(dim=-1, keepdim=True)
+        del outputs_prefill
+
         # Decode KV memory = current allocation after trim minus model-only baseline.
         # This is the ABSOLUTE KV cache size that decode will operate with —
         # the fair comparison metric across methods (not a delta).
@@ -148,7 +155,6 @@ class StreamingLLMMethod(BaseMethod):
         decode_kv_mb = (mem_after_trim - self.model_memory_bytes) / (1024 ** 2)
 
         # ── Decode (generate remaining tokens) ────────────────────────
-        next_token_id = outputs_prefill.logits[:, -1, :].argmax(dim=-1, keepdim=True)
         generated_ids = [next_token_id]
 
         for _ in range(max_new_tokens - 1):

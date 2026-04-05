@@ -16,7 +16,7 @@ METHODS: dict[str, type[BaseMethod]] = {
     "full_cache": FullCacheMethod,
     "h2o": H2OMethod,
     "streaming_llm": StreamingLLMMethod,
-    # "paged_attention": PagedAttentionMethod,
+    "paged_attention": PagedAttentionMethod,
 }
 
 __all__ = ["BaseMethod", "MethodOutput", "METHODS"]

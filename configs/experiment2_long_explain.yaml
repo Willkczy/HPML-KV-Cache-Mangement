@@ -17,8 +17,8 @@ data:
   difficulty: null
   prompt_style: "explain"               # ask model to reason before answering
   token_range:
-    min: 4000
-    max: 13000
+    min: 8000
+    max: 14000
 
 generation:
   max_new_tokens: 512                   # longer generation for explanation

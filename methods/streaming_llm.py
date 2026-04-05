@@ -95,6 +95,9 @@ class StreamingLLMMethod(BaseMethod):
             dtype=torch.float16,
         )
         self.model.eval()
+        # Baseline: model weights only, no KV cache yet.
+        # Used later to isolate KV memory from model memory.
+        self.model_memory_bytes = torch.cuda.memory_allocated(device)
 
     # ------------------------------------------------------------------
     # generate
@@ -138,10 +141,15 @@ class StreamingLLMMethod(BaseMethod):
         # and quantifying how much memory the trim saves.
         prefill_peak_mb = (torch.cuda.max_memory_allocated(self.device) - mem_before) / (1024 ** 2)
 
-        # Reset peak stats after trim so peak_kv_memory_mb reflects the
-        # decode-phase KV cache size, not the transient prefill allocation.
-        torch.cuda.reset_peak_memory_stats(self.device)
-        mem_before = torch.cuda.memory_allocated(self.device)
+        # Prefill peak = max memory allocated during prefill (before trim).
+        # Useful for understanding OOM risk and prefill cost.
+        prefill_peak_mb = (torch.cuda.max_memory_allocated(self.device) - mem_before) / (1024 ** 2)
+
+        # Decode KV memory = current allocation after trim minus model-only baseline.
+        # This is the ABSOLUTE KV cache size that decode will operate with —
+        # the fair comparison metric across methods (not a delta).
+        mem_after_trim = torch.cuda.memory_allocated(self.device)
+        decode_kv_mb = (mem_after_trim - self.model_memory_bytes) / (1024 ** 2)
 
         # ── Decode (generate remaining tokens) ────────────────────────
         next_token_id = outputs_prefill.logits[:, -1, :].argmax(dim=-1, keepdim=True)
@@ -178,9 +186,6 @@ class StreamingLLMMethod(BaseMethod):
         total_time_ms = (t_end - t_start) * 1000
         decode_latency_ms = total_time_ms - ttft_ms
 
-        mem_peak = torch.cuda.max_memory_allocated(self.device)
-        peak_kv_memory_mb = (mem_peak - mem_before) / (1024 ** 2)
-
         all_token_ids = torch.cat(generated_ids, dim=-1)
         generated_text = self.tokenizer.decode(
             all_token_ids[0], skip_special_tokens=True
@@ -193,7 +198,7 @@ class StreamingLLMMethod(BaseMethod):
             ttft_ms=ttft_ms,
             total_time_ms=total_time_ms,
             decode_latency_ms=decode_latency_ms,
-            peak_kv_memory_mb=peak_kv_memory_mb,
+            peak_kv_memory_mb=decode_kv_mb,
             metadata={
                 "method": "streaming_llm",
                 "start_size": start_size,

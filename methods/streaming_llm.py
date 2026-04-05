@@ -120,7 +120,6 @@ class StreamingLLMMethod(BaseMethod):
 
         # ── Memory baseline ───────────────────────────────────────────
         torch.cuda.reset_peak_memory_stats(self.device)
-        mem_before = torch.cuda.memory_allocated(self.device)
 
         # ── Prefill (measures TTFT) ───────────────────────────────────
         torch.cuda.synchronize()
@@ -137,16 +136,17 @@ class StreamingLLMMethod(BaseMethod):
         # Trim after prefill: if prompt already exceeds the window, evict now.
         _trim_cache(past_key_values, start_size, recent_size)
 
-        # Prefill peak = max memory allocated during prefill (before trim).
-        # Useful for understanding OOM risk and prefill cost.
-        prefill_peak_mb = (torch.cuda.max_memory_allocated(self.device) - mem_before) / (1024 ** 2)
-
         # Extract the first decode token from prefill logits, then free outputs_prefill.
         # The logits tensor is [batch, seq_len, vocab_size] — for long prompts this is
         # several GB (e.g. 10k tokens × 152k vocab × fp16 ≈ 3 GB).  Free it before
-        # the decode phase so it does not inflate the KV memory measurement.
+        # measuring KV memory so logits don't inflate the measurement.
         next_token_id = outputs_prefill.logits[:, -1, :].argmax(dim=-1, keepdim=True)
         del outputs_prefill
+
+        # Prefill KV memory = current memory after trim + logits freed, minus model baseline.
+        # Uses memory_allocated() (not peak) because we want the actual KV footprint
+        # after eviction, not the transient peak that included logits and full-prompt KV.
+        prefill_kv_mb = (torch.cuda.memory_allocated(self.device) - self.model_memory_bytes) / (1024 ** 2)
 
         # Reset peak stats so max_memory_allocated below only covers the decode phase.
         # Measuring peak (not current) handles all prompt/window combinations:
@@ -211,7 +211,7 @@ class StreamingLLMMethod(BaseMethod):
                 "method": "streaming_llm",
                 "start_size": start_size,
                 "recent_size": recent_size,
-                "prefill_peak_kv_memory_mb": round(prefill_peak_mb, 3),
+                "prefill_kv_memory_mb": round(prefill_kv_mb, 3),
             },
         )
 

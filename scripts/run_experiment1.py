@@ -157,7 +157,6 @@ def main():
         device=device,
         start_size=args.start_size,
         recent_size=args.recent_size,
-        hh_size=args.hh_size,
         block_size=args.block_size,
         max_model_len=args.max_model_len,
     )

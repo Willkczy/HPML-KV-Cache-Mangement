@@ -153,10 +153,16 @@ class PagedAttentionMethod(BaseMethod):
 
         decode_latency_ms = max(total_time_ms - ttft_ms, 0.0)
 
-        # --- KV memory: total (prompt + generated) ---
+        # --- KV memory ---
+        # Report decode-only peak KV memory to match experiment requirement.
+        # We still keep prefill/total in metadata for deeper analysis.
         total_tokens = prompt_tokens + generated_tokens
-        estimated_kv_mb = self._estimate_kv_memory_mb(total_tokens)
-        num_blocks = -(-total_tokens // self.block_size)  # ceil division
+        total_kv_mb = self._estimate_kv_memory_mb(total_tokens)
+        decode_peak_kv_mb = max(total_kv_mb - prefill_kv_mb, 0.0)
+
+        prefill_blocks = -(-prompt_tokens // self.block_size)  # ceil division
+        total_blocks = -(-total_tokens // self.block_size)  # ceil division
+        decode_blocks = max(total_blocks - prefill_blocks, 0)
 
         return MethodOutput(
             generated_text=generated_text,
@@ -165,13 +171,15 @@ class PagedAttentionMethod(BaseMethod):
             ttft_ms=ttft_ms,
             total_time_ms=total_time_ms,
             decode_latency_ms=decode_latency_ms,
-            peak_kv_memory_mb=estimated_kv_mb,
+            peak_kv_memory_mb=decode_peak_kv_mb,
             metadata={
                 "method": "paged_attention",
                 "backend": "vllm",
                 "block_size": self.block_size,
-                "num_blocks_used": num_blocks,
-                "estimated_kv_mb": round(estimated_kv_mb, 2),
+                "num_blocks_used": total_blocks,
+                "decode_blocks_used": decode_blocks,
+                "estimated_kv_mb": round(total_kv_mb, 2),
+                "decode_peak_kv_memory_mb": round(decode_peak_kv_mb, 3),
                 "prefill_peak_kv_memory_mb": round(prefill_kv_mb, 3),
                 "engine_memory_mb": round(self.engine_memory_mb, 2),
             },

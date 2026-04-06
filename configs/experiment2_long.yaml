@@ -13,12 +13,12 @@ data:
   domains:                              # empty list = all domains
     - "Single-Document QA"
     - "Multi-Document QA"
-  num_samples_per_domain: 40            # cap per domain, -1 for all
+  num_samples_per_domain: 20            # cap per domain, -1 for all
   difficulty: null                      # "easy", "hard", or null for all
   prompt_style: "short"                 # "short" = just A/B/C/D answer
   token_range:
     min: 8000
-    max: 14000
+    max: 16000
 
 generation:
   max_new_tokens: 10                    # multiple choice: A/B/C/D

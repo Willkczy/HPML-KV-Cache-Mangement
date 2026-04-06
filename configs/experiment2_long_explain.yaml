@@ -13,12 +13,12 @@ data:
   domains:
     - "Single-Document QA"
     - "Multi-Document QA"
-  num_samples_per_domain: 40
+  num_samples_per_domain: 20
   difficulty: null
   prompt_style: "explain"               # ask model to reason before answering
   token_range:
     min: 8000
-    max: 14000
+    max: 16000
 
 generation:
   max_new_tokens: 512                   # longer generation for explanation

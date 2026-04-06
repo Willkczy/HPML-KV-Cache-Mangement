@@ -23,22 +23,7 @@ import time
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-from methods.base import BaseMethod, MethodOutput
-
-
-def _kv_memory_mb(past_key_values) -> float:
-    """Compute exact KV cache memory by summing tensor bytes directly.
-
-    Counts only the K and V tensors themselves — no CUDA allocator overhead
-    or fragmentation.  Consistent with the H2O method's measurement approach.
-    """
-    total = 0
-    for layer in past_key_values.layers:
-        if not layer.is_initialized:
-            continue
-        total += layer.keys.nelement() * layer.keys.element_size()
-        total += layer.values.nelement() * layer.values.element_size()
-    return total / (1024 ** 2)
+from methods.base import BaseMethod, MethodOutput, kv_memory_mb as _kv_memory_mb
 
 
 def _trim_cache(past_key_values, start_size: int, recent_size: int) -> None:

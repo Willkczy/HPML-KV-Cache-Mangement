@@ -6,8 +6,7 @@ internal fragmentation and lets requests share physical memory pages.
 
 To ensure fair benchmarking against HuggingFace-based methods, we disable
 vLLM's implicit optimizations:
-  - enforce_eager=True          → disables CUDA graph capture
-  - compilation_config level=0  → disables torch.compile / CUDA graphs
+  - enforce_eager=True          → disables CUDA graph capture and torch.compile
 
 Requires: pip install vllm
 """
@@ -16,7 +15,6 @@ import time
 
 import torch
 from vllm import LLM, SamplingParams
-from vllm.config import CompilationConfig
 
 from methods.base import BaseMethod, MethodOutput
 
@@ -53,7 +51,6 @@ class PagedAttentionMethod(BaseMethod):
             dtype="auto",
             # ── Disable implicit optimizations for fair benchmarking ──
             enforce_eager=kwargs.get("enforce_eager", True),
-            compilation_config=CompilationConfig(level=0),
         )
 
         self.engine_memory_mb = (

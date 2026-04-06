@@ -137,18 +137,24 @@ class H2OMethod(BaseMethod):
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name, trust_remote_code=True
         )
-        # Load with eager attention. Prefill calls skip output_attentions=True
-        # so the [seq_len x seq_len] matrix is never stored — avoids OOM on
-        # long contexts. Decode steps pass output_attentions=True; each decode
-        # query is 1 token so the matrix is [B, H, 1, kv_len] — negligible.
+        # Load with sdpa for memory-efficient prefill. We switch individual
+        # attention layers to eager mode only during decode steps so we can
+        # read the [B, H, 1, kv_len] attention weights for H2O scoring.
+        # During prefill (full seq_len) we never request attention weights,
+        # so sdpa is safe and avoids the O(seq_len^2) OOM.
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             dtype=torch.float16,
             device_map=device,
             trust_remote_code=True,
-            attn_implementation="eager",
+            attn_implementation="sdpa",
         )
         self.model.eval()
+
+        # Patch each attention layer so we can toggle eager on/off per call.
+        # During decode we temporarily set _attn_implementation = "eager" on
+        # the model config, which HuggingFace respects at forward time.
+        self._config_attn = self.model.config._attn_implementation
 
     def generate(self, prompt: str, max_new_tokens: int = 128, **kwargs) -> MethodOutput:
         hh_size = int(kwargs.get("hh_size", self.hh_size))
@@ -212,6 +218,10 @@ class H2OMethod(BaseMethod):
                 )
                 next_pos += 1
 
+                # Switch to eager for this single-token decode step so
+                # attention weights are returned for H2O scoring.
+                # [B, H, 1, kv_len] — negligible memory at any context length.
+                self.model.config._attn_implementation = "eager"
                 outputs = self.model(
                     input_ids=next_token,
                     past_key_values=past_key_values,
@@ -219,6 +229,7 @@ class H2OMethod(BaseMethod):
                     output_attentions=True,
                     use_cache=True,
                 )
+                self.model.config._attn_implementation = self._config_attn
 
                 next_token = outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
                 generated_ids.append(next_token.item())

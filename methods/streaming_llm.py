@@ -26,6 +26,21 @@ from transformers import AutoTokenizer, AutoModelForCausalLM
 from methods.base import BaseMethod, MethodOutput
 
 
+def _kv_memory_mb(past_key_values) -> float:
+    """Compute exact KV cache memory by summing tensor bytes directly.
+
+    Counts only the K and V tensors themselves — no CUDA allocator overhead
+    or fragmentation.  Consistent with the H2O method's measurement approach.
+    """
+    total = 0
+    for layer in past_key_values.layers:
+        if not layer.is_initialized:
+            continue
+        total += layer.keys.nelement() * layer.keys.element_size()
+        total += layer.values.nelement() * layer.values.element_size()
+    return total / (1024 ** 2)
+
+
 def _trim_cache(past_key_values, start_size: int, recent_size: int) -> None:
     """Evict middle tokens from a DynamicCache in-place.
 
@@ -95,9 +110,6 @@ class StreamingLLMMethod(BaseMethod):
             dtype=torch.float16,
         )
         self.model.eval()
-        # Baseline: model weights only, no KV cache yet.
-        # Used later to isolate KV memory from model memory.
-        self.model_memory_bytes = torch.cuda.memory_allocated(device)
 
     # ------------------------------------------------------------------
     # generate
@@ -117,10 +129,6 @@ class StreamingLLMMethod(BaseMethod):
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
         input_ids = inputs["input_ids"]
         prompt_tokens = input_ids.shape[1]
-
-        # ── Memory baseline (after tokenization, before prefill) ─────
-        torch.cuda.reset_peak_memory_stats(self.device)
-        mem_before = torch.cuda.memory_allocated(self.device)  # model + input_ids
 
         # ── Prefill (measures TTFT) ───────────────────────────────────
         torch.cuda.synchronize()
@@ -144,16 +152,9 @@ class StreamingLLMMethod(BaseMethod):
         next_token_id = outputs_prefill.logits[:, -1, :].argmax(dim=-1, keepdim=True)
         del outputs_prefill
 
-        # Prefill KV memory = (model + input_ids + trimmed KV) - (model + input_ids)
-        # = true KV footprint after eviction, without logits inflation.
-        prefill_kv_mb = (torch.cuda.memory_allocated(self.device) - mem_before) / (1024 ** 2)
-
-        # Reset peak stats so max_memory_allocated below only covers the decode phase.
-        # Measuring peak (not current) handles all prompt/window combinations:
-        #   prompt > window  → KV trimmed to window at start, constant → peak = window × 112KB
-        #   prompt ≤ window, prompt+decode > window → KV grows until trim fires → peak ≈ window × 112KB
-        #   prompt ≤ window, prompt+decode ≤ window → no trim fires, KV = prompt+decode → peak = actual usage
-        torch.cuda.reset_peak_memory_stats(self.device)
+        # Prefill KV memory: exact tensor bytes after eviction, no CUDA overhead.
+        prefill_kv_mb = _kv_memory_mb(past_key_values)
+        peak_kv_mb = prefill_kv_mb
 
         # ── Decode (generate remaining tokens) ────────────────────────
         generated_ids = [next_token_id]
@@ -175,6 +176,7 @@ class StreamingLLMMethod(BaseMethod):
 
             past_key_values = out.past_key_values
             _trim_cache(past_key_values, start_size, recent_size)
+            peak_kv_mb = max(peak_kv_mb, _kv_memory_mb(past_key_values))
 
             next_token_id = out.logits[:, -1, :].argmax(dim=-1, keepdim=True)
             generated_ids.append(next_token_id)
@@ -189,11 +191,6 @@ class StreamingLLMMethod(BaseMethod):
         total_time_ms = (t_end - t_start) * 1000
         decode_latency_ms = total_time_ms - ttft_ms
 
-        # Peak KV memory during decode = peak allocation - model-only baseline.
-        # Because we reset peak stats before the decode loop, this captures the
-        # true maximum KV footprint regardless of whether trim fired or not.
-        decode_kv_mb = (torch.cuda.max_memory_allocated(self.device) - self.model_memory_bytes) / (1024 ** 2)
-
         all_token_ids = torch.cat(generated_ids, dim=-1)
         generated_text = self.tokenizer.decode(
             all_token_ids[0], skip_special_tokens=True
@@ -206,7 +203,7 @@ class StreamingLLMMethod(BaseMethod):
             ttft_ms=ttft_ms,
             total_time_ms=total_time_ms,
             decode_latency_ms=decode_latency_ms,
-            peak_kv_memory_mb=decode_kv_mb,
+            peak_kv_memory_mb=peak_kv_mb,
             metadata={
                 "method": "streaming_llm",
                 "start_size": start_size,

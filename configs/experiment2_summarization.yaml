@@ -1,0 +1,24 @@
+# Experiment 2 — Long Bucket (GovReport summarization)
+experiment:
+  name: "exp2_summarization"
+  description: "Government report summarization for long-generation KV cache benchmarking"
+
+model:
+  name: "Qwen/Qwen2.5-7B"
+  local_path: "~/models/qwen2.5-7b"
+  device: "cuda"
+
+data:
+  dataset: "govreport"
+  split: "test"
+  num_samples: 50                       # cap total samples, -1 for all
+  token_range:
+    min: 4000
+    max: 16000
+
+generation:
+  max_new_tokens: 512                   # summaries are ~200-700 tokens
+  temperature: 0.0
+
+output:
+  results_dir: "results/exp2_summarization"

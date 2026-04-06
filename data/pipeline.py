@@ -118,12 +118,152 @@ def _load_mmlu(config: dict, tokenizer) -> list[Sample]:
     return samples
 
 
+# ── LongBench v2 formatting ───────────────────────────────────────────────
+
+LONGBENCH_CHOICES = ["A", "B", "C", "D"]
+
+
+def _format_longbench_question(example: dict, prompt_style: str = "short") -> str:
+    """Format a LongBench v2 question with context and lettered choices.
+
+    Args:
+        prompt_style: "short" for just the answer letter,
+                      "explain" to ask for reasoning before answering.
+    """
+    context = example["context"]
+    question = example["question"]
+    choices = [
+        example["choice_A"],
+        example["choice_B"],
+        example["choice_C"],
+        example["choice_D"],
+    ]
+    formatted = f"{context}\n\n{question}\n"
+    for letter, choice in zip(LONGBENCH_CHOICES, choices):
+        formatted += f"  {letter}. {choice}\n"
+    if prompt_style == "explain":
+        formatted += (
+            "\nFirst state your final answer as a single letter (A, B, C, or D), "
+            "then explain your reasoning step by step."
+        )
+    else:
+        formatted += "Answer:"
+    return formatted
+
+
+def _load_longbench(config: dict, tokenizer) -> list[Sample]:
+    """Load LongBench v2 samples filtered by token range and domain."""
+    data_cfg = config["data"]
+    domains = data_cfg.get("domains", [])
+    cap = data_cfg.get("num_samples_per_domain", -1)
+    tok_min = data_cfg["token_range"]["min"]
+    tok_max = data_cfg["token_range"]["max"]
+    difficulty = data_cfg.get("difficulty", None)  # "easy", "hard", or None for all
+    prompt_style = data_cfg.get("prompt_style", "short")  # "short" or "explain"
+
+    ds = load_dataset("THUDM/LongBench-v2", split="train")
+
+    # Group by domain for optional per-domain caps
+    from collections import defaultdict
+    domain_counts: dict[str, int] = defaultdict(int)
+
+    samples = []
+    for example in ds:
+        # Filter by domain if specified
+        if domains and example["domain"] not in domains:
+            continue
+
+        # Filter by difficulty if specified
+        if difficulty and example["difficulty"] != difficulty:
+            continue
+
+        # Per-domain cap
+        domain = example["domain"]
+        if cap > 0 and domain_counts[domain] >= cap:
+            continue
+
+        prompt = _format_longbench_question(example, prompt_style=prompt_style)
+        reference = example["answer"]
+
+        # Token count filter
+        token_count = len(tokenizer.encode(prompt))
+        if token_count < tok_min or token_count > tok_max:
+            continue
+
+        samples.append(Sample(
+            id=f"longbench_{example['_id']}",
+            prompt=prompt,
+            reference=reference,
+            dataset="longbench",
+            subset=example["sub_domain"],
+            token_count=token_count,
+            metadata={
+                "domain": domain,
+                "sub_domain": example["sub_domain"],
+                "difficulty": example["difficulty"],
+                "length_category": example["length"],
+            },
+        ))
+
+        domain_counts[domain] += 1
+
+    return samples
+
+
+# ── GovReport summarization ───────────────────────────────────────────────
+
+def _format_govreport_prompt(report: str) -> str:
+    """Format a GovReport document for summarization."""
+    return (
+        f"Please read the following government report and write a concise summary.\n\n"
+        f"{report}\n\n"
+        f"Summary:"
+    )
+
+
+def _load_govreport(config: dict, tokenizer) -> list[Sample]:
+    """Load GovReport summarization samples filtered by token range."""
+    data_cfg = config["data"]
+    split = data_cfg.get("split", "test")
+    cap = data_cfg.get("num_samples", -1)
+    tok_min = data_cfg["token_range"]["min"]
+    tok_max = data_cfg["token_range"]["max"]
+
+    ds = load_dataset("ccdv/govreport-summarization", split=split)
+
+    samples = []
+    for i, example in enumerate(ds):
+        prompt = _format_govreport_prompt(example["report"])
+        reference = example["summary"]
+
+        token_count = len(tokenizer.encode(prompt))
+        if token_count < tok_min or token_count > tok_max:
+            continue
+
+        samples.append(Sample(
+            id=f"govreport_{i}",
+            prompt=prompt,
+            reference=reference,
+            dataset="govreport",
+            subset="govreport",
+            token_count=token_count,
+            metadata={
+                "reference_token_count": len(tokenizer.encode(reference)),
+            },
+        ))
+
+        if cap > 0 and len(samples) >= cap:
+            break
+
+    return samples
+
+
 # ── Public API ──────────────────────────────────────────────────────────────
 
 LOADERS = {
     "mmlu": _load_mmlu,
-    # "cnn_dailymail": _load_cnn_dailymail,   # TODO: medium bucket
-    # "longbench": _load_longbench,           # TODO: long bucket
+    "longbench": _load_longbench,
+    "govreport": _load_govreport,
 }
 
 

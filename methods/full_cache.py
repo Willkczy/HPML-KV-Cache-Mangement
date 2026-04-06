@@ -8,7 +8,7 @@ import time
 import torch
 from transformers import AutoTokenizer, AutoModelForCausalLM
 
-from methods.base import BaseMethod, MethodOutput
+from methods.base import BaseMethod, MethodOutput, kv_memory_mb
 
 
 class FullCacheMethod(BaseMethod):
@@ -41,6 +41,7 @@ class FullCacheMethod(BaseMethod):
         # ── Memory baseline ───────────────────────────────────────
         torch.cuda.reset_peak_memory_stats(self.device)
         mem_before = torch.cuda.memory_allocated(self.device)
+        peak_kv_mb = 0.0
 
         # ── Prefill (measures TTFT) ───────────────────────────────
         torch.cuda.synchronize()
@@ -53,11 +54,6 @@ class FullCacheMethod(BaseMethod):
         torch.cuda.synchronize()
         t_prefill = time.perf_counter()
         ttft_ms = (t_prefill - t_start) * 1000
-
-        # Record prefill peak, then reset for decode-phase measurement
-        prefill_peak_mb = (torch.cuda.max_memory_allocated(self.device) - mem_before) / (1024 ** 2)
-        torch.cuda.reset_peak_memory_stats(self.device)
-        mem_before = torch.cuda.memory_allocated(self.device)
 
     # ── Decode (generate remaining tokens) ────────────────────
         # Start from the last token of prefill
@@ -82,12 +78,15 @@ class FullCacheMethod(BaseMethod):
         torch.cuda.synchronize()
         t_end = time.perf_counter()
 
+        # Final KV cache size (full cache only grows, so this is the peak)
+        peak_kv_mb = kv_memory_mb(past_key_values)
+
         # ── Collect results ───────────────────────────────────────
         total_time_ms = (t_end - t_start) * 1000
         decode_latency_ms = total_time_ms - ttft_ms
 
-        mem_peak = torch.cuda.max_memory_allocated(self.device)
-        peak_kv_memory_mb = (mem_peak - mem_before) / (1024 ** 2)
+        # GPU-level peak for reference (includes activations, logits, etc.)
+        gpu_peak_mb = (torch.cuda.max_memory_allocated(self.device) - mem_before) / (1024 ** 2)
 
         all_token_ids = torch.cat(generated_ids, dim=-1)
         generated_text = self.tokenizer.decode(
@@ -101,10 +100,10 @@ class FullCacheMethod(BaseMethod):
             ttft_ms=ttft_ms,
             total_time_ms=total_time_ms,
             decode_latency_ms=decode_latency_ms,
-            peak_kv_memory_mb=peak_kv_memory_mb,
+            peak_kv_memory_mb=peak_kv_mb,
             metadata={
                 "method": "full_cache",
-                "prefill_peak_kv_memory_mb": round(prefill_peak_mb, 3),
+                "gpu_peak_mb": round(gpu_peak_mb, 3),
             },
         )
     

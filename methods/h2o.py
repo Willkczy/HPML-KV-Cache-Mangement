@@ -171,6 +171,7 @@ class H2OMethod(BaseMethod):
         past_key_values = None
         hh_scores = None
         peak_kv_mb = 0.0
+        decode_peak_kv_mb = 0.0   # post-eviction peak (the H2O benefit)
         # next_pos tracks the absolute position of the token we're about to
         # generate. We pass it as position_ids so the model uses the correct
         # RoPE offset regardless of how many tokens remain in the pruned cache.
@@ -197,15 +198,17 @@ class H2OMethod(BaseMethod):
             generated_ids.append(next_token.item())
 
             past_key_values = outputs.past_key_values
-            # hh_scores stays None — first decode step will initialise it
-            peak_kv_mb = max(peak_kv_mb, _kv_memory_mb(past_key_values))
+            # Record prefill peak separately; decode_peak tracks post-eviction.
+            prefill_kv_mb = _kv_memory_mb(past_key_values)
+            peak_kv_mb = prefill_kv_mb
 
             if next_token.item() == eos_id or max_new_tokens <= 1:
                 t_end = time.perf_counter()
                 return self._make_output(
                     generated_ids, prompt_tokens,
                     ttft_ms, (t_end - t0) * 1000.0,
-                    peak_kv_mb, hh_size, recent_size,
+                    peak_kv_mb, decode_peak_kv_mb, prefill_kv_mb,
+                    hh_size, recent_size,
                 )
 
             # ── Decode ───────────────────────────────────────────────────────
@@ -241,7 +244,9 @@ class H2OMethod(BaseMethod):
                     hh_size,
                     recent_size,
                 )
-                peak_kv_mb = max(peak_kv_mb, _kv_memory_mb(past_key_values))
+                step_kv = _kv_memory_mb(past_key_values)
+                decode_peak_kv_mb = max(decode_peak_kv_mb, step_kv)
+                peak_kv_mb = max(peak_kv_mb, step_kv)
 
                 if next_token.item() == eos_id:
                     break
@@ -250,7 +255,8 @@ class H2OMethod(BaseMethod):
         return self._make_output(
             generated_ids, prompt_tokens,
             ttft_ms, (t_end - t0) * 1000.0,
-            peak_kv_mb, hh_size, recent_size,
+            peak_kv_mb, decode_peak_kv_mb, prefill_kv_mb,
+            hh_size, recent_size,
         )
 
     def teardown(self) -> None:
@@ -270,6 +276,8 @@ class H2OMethod(BaseMethod):
         ttft_ms: float,
         total_ms: float,
         peak_kv_mb: float,
+        decode_peak_kv_mb: float,
+        prefill_kv_mb: float,
         hh_size: int,
         recent_size: int,
     ) -> MethodOutput:
@@ -284,5 +292,10 @@ class H2OMethod(BaseMethod):
             total_time_ms=total_ms,
             decode_latency_ms=total_ms - ttft_ms,
             peak_kv_memory_mb=peak_kv_mb,
-            metadata={"hh_size": hh_size, "recent_size": recent_size},
+            metadata={
+                "hh_size": hh_size,
+                "recent_size": recent_size,
+                "decode_peak_kv_memory_mb": decode_peak_kv_mb,
+                "prefill_peak_kv_memory_mb": prefill_kv_mb,
+            },
         )

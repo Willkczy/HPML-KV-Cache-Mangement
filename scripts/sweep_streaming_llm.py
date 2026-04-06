@@ -90,7 +90,7 @@ def run_one(method, samples, dataset_name, max_new_tokens, use_rouge):
             "decode_latency_ms":         round(out.decode_latency_ms, 3),
             "throughput_tok_s":          round(throughput, 2),
             "peak_kv_memory_mb":         round(out.peak_kv_memory_mb, 3),
-            "prefill_peak_kv_memory_mb": round(out.metadata.get("prefill_peak_kv_memory_mb", 0), 3),
+            "prefill_kv_memory_mb": round(out.metadata.get("prefill_kv_memory_mb", 0), 3),
             "oom":                       False,
         }
 
@@ -118,7 +118,7 @@ def summarise(records, use_rouge):
         "avg_decode_latency_ms":   round(avg("decode_latency_ms"), 1),
         "avg_throughput_tok_s":    round(avg("throughput_tok_s"), 2),
         "avg_peak_kv_memory_mb":   round(avg("peak_kv_memory_mb"), 1),
-        "avg_prefill_peak_kv_memory_mb": round(avg("prefill_peak_kv_memory_mb"), 1),
+        "avg_prefill_kv_memory_mb": round(avg("prefill_kv_memory_mb"), 1),
     }
     if use_rouge:
         s["avg_rouge_l"] = round(avg("rouge_l"), 4)
@@ -198,7 +198,7 @@ def main():
                        else f"acc={summary['accuracy']:.1%}")
             print(f"  {quality}  |  "
                   f"decode_mem={summary['avg_peak_kv_memory_mb']:.1f}MB  |  "
-                  f"prefill_mem={summary['avg_prefill_peak_kv_memory_mb']:.1f}MB  |  "
+                  f"prefill_mem={summary['avg_prefill_kv_memory_mb']:.1f}MB  |  "
                   f"TTFT={summary['avg_ttft_ms']:.0f}ms  |  "
                   f"OOM={summary['n_oom']}/{summary['n_samples']}")
 
@@ -227,7 +227,7 @@ def main():
             q = s.get(quality_key, 0)
             print(f"  {recent_size:>12} | {q:>10.3f} | "
                   f"{s['avg_peak_kv_memory_mb']:>10.1f}MB | "
-                  f"{s['avg_prefill_peak_kv_memory_mb']:>10.1f}MB | "
+                  f"{s['avg_prefill_kv_memory_mb']:>10.1f}MB | "
                   f"{s['avg_ttft_ms']:>6.0f}ms | "
                   f"{s['n_oom']:>2}/{s['n_samples']}")
 

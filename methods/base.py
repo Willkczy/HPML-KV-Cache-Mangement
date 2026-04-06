@@ -8,6 +8,20 @@ experiment runner and evaluation code method-agnostic.
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 
+def kv_memory_mb(past_key_values) -> float:
+    """Sum bytes of all K and V tensors in the cache, converted to MB.
+
+    Works with DynamicCache and any iterable of (key, value, ...) tuples.
+    Use this across all methods to ensure consistent KV memory measurement.
+    """
+    if past_key_values is None:
+        return 0.0
+    total = 0
+    for layer_kv in past_key_values:
+        k, v = layer_kv[0], layer_kv[1]
+        total += k.nelement() * k.element_size()
+        total += v.nelement() * v.element_size()
+    return total / (1024 ** 2)
 
 @dataclass
 class MethodOutput:

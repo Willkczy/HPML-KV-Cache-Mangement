@@ -212,6 +212,7 @@ def main():
             "throughput_tok_s":   round(throughput, 2),
             "peak_kv_memory_mb":  round(output.peak_kv_memory_mb, 3),
             "prefill_peak_kv_memory_mb": round(output.metadata.get("prefill_peak_kv_memory_mb", output.peak_kv_memory_mb), 3),
+            "decode_peak_kv_memory_mb": round(output.metadata.get("decode_peak_kv_memory_mb", output.peak_kv_memory_mb), 3),
             "generated_text":     output.generated_text,
             "reference":          sample.reference,
             "oom":                False,
@@ -230,10 +231,11 @@ def main():
 
         records.append(record)
 
+        decode_peak = output.metadata.get("decode_peak_kv_memory_mb", output.peak_kv_memory_mb)
         print(f"  [{i+1:>3}/{n}] {sample.id:<45} "
               f"TTFT={output.ttft_ms:6.1f}ms  "
               f"decode={output.decode_latency_ms:6.1f}ms  "
-              f"mem={output.peak_kv_memory_mb:6.1f}MB  "
+              f"kv={decode_peak:6.1f}MB  "
               f"{quality_str}")
 
     # Teardown
@@ -257,6 +259,8 @@ def main():
         "avg_total_time_ms":   round(avg("total_time_ms"), 3),
         "avg_throughput_tok_s": round(avg("throughput_tok_s"), 2),
         "avg_peak_kv_memory_mb": round(avg("peak_kv_memory_mb"), 3),
+        "avg_decode_peak_kv_memory_mb": round(avg("decode_peak_kv_memory_mb"), 3),
+        "avg_prefill_peak_kv_memory_mb": round(avg("prefill_peak_kv_memory_mb"), 3),
     }
 
     print(f"\n{'='*60}")
@@ -273,11 +277,12 @@ def main():
         accuracy = n_correct / len(valid_records) if valid_records else 0.0
         summary["accuracy"] = round(accuracy, 4)
         print(f"  Accuracy:  {accuracy:.1%}  ({n_correct}/{len(valid_records)})")
- 
+
     print(f"  Avg TTFT:          {summary['avg_ttft_ms']:.1f} ms")
     print(f"  Avg decode:        {summary['avg_decode_latency_ms']:.1f} ms")
     print(f"  Avg throughput:    {summary['avg_throughput_tok_s']:.1f} tok/s")
-    print(f"  Avg peak KV mem:   {summary['avg_peak_kv_memory_mb']:.1f} MB")
+    print(f"  Avg decode KV mem: {summary['avg_decode_peak_kv_memory_mb']:.1f} MB  (post-eviction)")
+    print(f"  Avg prefill KV mem:{summary['avg_prefill_peak_kv_memory_mb']:.1f} MB  (before eviction)")
     print(f"{'='*60}\n")
 
     # Save results

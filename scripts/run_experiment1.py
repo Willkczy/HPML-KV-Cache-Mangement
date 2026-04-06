@@ -54,6 +54,8 @@ def parse_args():
     # H2O-specific (ignored by other methods via **kwargs)
     parser.add_argument("--hh_size", type=int, default=64,
                         help="H2O: number of heavy-hitter tokens to keep.")
+    parser.add_argument("--repetition_penalty", type=float, default=1.3,
+                        help="Repetition penalty applied during greedy decode (1.0 = off).")
     return parser.parse_args()
 
 
@@ -156,6 +158,7 @@ def main():
         start_size=args.start_size,
         recent_size=args.recent_size,
         hh_size=args.hh_size,
+        repetition_penalty=args.repetition_penalty,
     )
 
     # Experiment loop

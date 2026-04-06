@@ -133,6 +133,7 @@ class H2OMethod(BaseMethod):
         self.device = device
         self.hh_size = int(kwargs.get("hh_size", 64))
         self.recent_size = int(kwargs.get("recent_size", 64))
+        self.repetition_penalty = float(kwargs.get("repetition_penalty", 1.3))
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name, trust_remote_code=True
@@ -159,6 +160,7 @@ class H2OMethod(BaseMethod):
     def generate(self, prompt: str, max_new_tokens: int = 128, **kwargs) -> MethodOutput:
         hh_size = int(kwargs.get("hh_size", self.hh_size))
         recent_size = int(kwargs.get("recent_size", self.recent_size))
+        repetition_penalty = float(kwargs.get("repetition_penalty", self.repetition_penalty))
 
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
         input_ids = inputs["input_ids"]
@@ -167,7 +169,18 @@ class H2OMethod(BaseMethod):
 
         torch.cuda.reset_peak_memory_stats(self.device)
 
+        def _apply_repetition_penalty(logits, seen_ids, penalty):
+            """Divide logits of already-seen tokens by penalty (> 1 = less repetition)."""
+            if penalty == 1.0 or not seen_ids:
+                return logits
+            seen = torch.tensor(list(seen_ids), device=logits.device, dtype=torch.long)
+            score = logits[0, 0, seen]
+            score = torch.where(score < 0, score * penalty, score / penalty)
+            logits[0, 0, seen] = score
+            return logits
+
         generated_ids: list[int] = []
+        seen_token_ids: set[int] = set(input_ids[0].tolist())
         past_key_values = None
         hh_scores = None
         peak_kv_mb = 0.0
@@ -194,8 +207,11 @@ class H2OMethod(BaseMethod):
             t_first_token = time.perf_counter()
             ttft_ms = (t_first_token - t0) * 1000.0
 
-            next_token = outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
+            logits = outputs.logits[:, -1:, :]
+            _apply_repetition_penalty(logits, seen_token_ids, repetition_penalty)
+            next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
             generated_ids.append(next_token.item())
+            seen_token_ids.add(next_token.item())
 
             past_key_values = outputs.past_key_values
             # Record prefill peak separately; decode_peak tracks post-eviction.
@@ -234,8 +250,11 @@ class H2OMethod(BaseMethod):
                 )
                 self.model.config._attn_implementation = self._config_attn
 
-                next_token = outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
+                logits = outputs.logits[:, -1:, :]
+                _apply_repetition_penalty(logits, seen_token_ids, repetition_penalty)
+                next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
                 generated_ids.append(next_token.item())
+                seen_token_ids.add(next_token.item())
 
                 past_key_values, hh_scores = _update_and_evict(
                     outputs.past_key_values,

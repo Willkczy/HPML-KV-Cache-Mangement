@@ -137,7 +137,10 @@ class H2OMethod(BaseMethod):
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name, trust_remote_code=True
         )
-        # eager attention is required to materialise attention weights
+        # Load with eager attention. Prefill calls skip output_attentions=True
+        # so the [seq_len x seq_len] matrix is never stored — avoids OOM on
+        # long contexts. Decode steps pass output_attentions=True; each decode
+        # query is 1 token so the matrix is [B, H, 1, kv_len] — negligible.
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             dtype=torch.float16,
@@ -171,10 +174,13 @@ class H2OMethod(BaseMethod):
             # ── Prefill ──────────────────────────────────────────────────────
             t0 = time.perf_counter()
 
+            # Prefill: no output_attentions — avoids materialising the
+            # [seq_len x seq_len] attention matrix which OOMs on long contexts.
+            # H2O scoring starts from the first decode step instead.
             outputs = self.model(
                 input_ids=input_ids,
                 past_key_values=None,
-                output_attentions=True,
+                output_attentions=False,
                 use_cache=True,
             )
 
@@ -184,13 +190,8 @@ class H2OMethod(BaseMethod):
             next_token = outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
             generated_ids.append(next_token.item())
 
-            past_key_values, hh_scores = _update_and_evict(
-                outputs.past_key_values,
-                outputs.attentions,
-                hh_scores,
-                hh_size,
-                recent_size,
-            )
+            past_key_values = outputs.past_key_values
+            # hh_scores stays None — first decode step will initialise it
             peak_kv_mb = max(peak_kv_mb, _kv_memory_mb(past_key_values))
 
             if next_token.item() == eos_id or max_new_tokens <= 1:

@@ -51,6 +51,16 @@ def parse_args():
                         help="StreamingLLM: number of attention sink tokens.")
     parser.add_argument("--recent_size", type=int, default=256,
                         help="StreamingLLM: size of the recent token window.")
+    # vLLM-specific (ignored by HF methods via **kwargs)
+    parser.add_argument("--max_model_len", type=int, default=None,
+                        help="vLLM: max sequence length (overrides method default).")
+    parser.add_argument("--block_size", type=int, default=16,
+                        help="vLLM: tokens per KV block.")
+    parser.add_argument("--gpu_memory_utilization", type=float, default=0.9,
+                        help="vLLM: fraction of GPU memory reserved for KV cache.")
+    # General
+    parser.add_argument("--num_samples", type=int, default=None,
+                        help="Cap total number of samples (applied after dataset load).")
     return parser.parse_args()
 
 
@@ -141,18 +151,24 @@ def main():
     if args.smoke_test:
         samples = samples[:3]
         print(f"[runner] Smoke test — using {len(samples)} samples only.")
+    elif args.num_samples is not None:
+        samples = samples[:args.num_samples]
+        print(f"[runner] --num_samples cap — using {len(samples)} samples.")
 
     # Instantiate and set up method
     method_cls = METHODS[args.method]
     method = method_cls()
 
     print(f"\n[runner] Setting up method '{args.method}' with model '{model_name}' ...")
-    method.setup(
-        model_name=model_name,
-        device=device,
+    setup_kwargs = dict(
         start_size=args.start_size,
         recent_size=args.recent_size,
+        block_size=args.block_size,
+        gpu_memory_utilization=args.gpu_memory_utilization,
     )
+    if args.max_model_len is not None:
+        setup_kwargs["max_model_len"] = args.max_model_len
+    method.setup(model_name=model_name, device=device, **setup_kwargs)
 
     # Experiment loop
     records = []

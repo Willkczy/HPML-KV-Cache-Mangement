@@ -103,6 +103,11 @@ class SinkRecentPolicy:
 _PATCHES_APPLIED: bool = False
 _ACTIVE_POLICY: Optional[SinkRecentPolicy] = None
 
+# Stores effective_kv_len per seq_id, written by Patch 3 (scheduler hook)
+# and read by Patch 2 (model runner).  SequenceData uses __slots__ so we
+# cannot set attributes on it directly.
+_effective_kv_lens: dict = {}
+
 
 def _apply_vllm_patches(policy: SinkRecentPolicy) -> None:
     """Monkey-patch vLLM internals to implement sink+recent KV retention.
@@ -247,15 +252,13 @@ def _patch_model_runner() -> None:
         original_compute_lens(self, inter_data, seq_idx, seq_group_metadata)
 
         # Override seq_len with effective_kv_len if set by the trim hook.
-        # In vLLM 0.8.x, _compute_lens uses inter_data.seq_ids[seq_idx] directly
-        # (verified: seq_data = seq_group_metadata.seq_data[inter_data.seq_ids[seq_idx]]).
+        # SequenceData uses __slots__ so we store per-seq state in the
+        # module-level _effective_kv_lens dict keyed by seq_id.
         try:
             seq_id = inter_data.seq_ids[seq_idx]
-            seq_data = seq_group_metadata.seq_data[seq_id]
-            effective_kv_len = getattr(seq_data, "_effective_kv_len", None)
+            effective_kv_len = _effective_kv_lens.get(seq_id)
             if effective_kv_len is not None and effective_kv_len > 0:
                 inter_data.seq_lens[seq_idx] = effective_kv_len
-                # orig_seq_lens is also set in 0.8.x; keep it consistent.
                 if hasattr(inter_data, "orig_seq_lens"):
                     inter_data.orig_seq_lens[seq_idx] = effective_kv_len
         except (AttributeError, KeyError, IndexError):
@@ -314,8 +317,8 @@ def _patch_scheduler(policy: SinkRecentPolicy) -> None:
 
         for seq in running_seqs:
             effective_kv_len = block_manager.trim_request_blocks(seq.seq_id)
-            # Store on SequenceData so Patch 2 reads it in prepare_model_input().
-            seq.data._effective_kv_len = effective_kv_len
+            # Store in module-level dict (SequenceData uses __slots__).
+            _effective_kv_lens[seq.seq_id] = effective_kv_len
 
         return result
 

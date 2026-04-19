@@ -408,7 +408,7 @@ class StreamingLLMvLLMMethod(BaseMethod):
             max_model_len=kwargs.get("max_model_len", 16384),
             block_size=self.block_size,
             dtype="auto",
-            enforce_eager=kwargs.get("enforce_eager", False),
+            enforce_eager=kwargs.get("enforce_eager", True),
             # Disable prefix caching: shared blocks complicate ref_count tracking.
             enable_prefix_caching=False,
         )

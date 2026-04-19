@@ -433,13 +433,16 @@ class StreamingLLMvLLMMethod(BaseMethod):
         Formula (matches ``paged_attention.py`` baseline):
             2 × layers × tokens × kv_heads × head_dim × dtype_bytes
         """
-        hf_config = self.llm.model_config.hf_config
+        # model_config lives on llm_engine in vLLM 0.8.x (V0 engine path)
+        model_config = getattr(self.llm, "model_config",
+                               self.llm.llm_engine.model_config)
+        hf_config = model_config.hf_config
         num_layers = hf_config.num_hidden_layers
         num_kv_heads = getattr(
             hf_config, "num_key_value_heads", hf_config.num_attention_heads
         )
         head_dim = hf_config.hidden_size // hf_config.num_attention_heads
-        dtype_bytes = torch.tensor([], dtype=self.llm.model_config.dtype).element_size()
+        dtype_bytes = torch.tensor([], dtype=model_config.dtype).element_size()
         kv_bytes = 2 * num_layers * total_tokens * num_kv_heads * head_dim * dtype_bytes
         return kv_bytes / (1024 ** 2)
 

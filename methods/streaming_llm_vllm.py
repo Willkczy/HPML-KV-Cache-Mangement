@@ -377,7 +377,7 @@ class StreamingLLMvLLMMethod(BaseMethod):
 
         Keyword args forwarded to ``LLM()``:
             gpu_memory_utilization (float): KV pool fraction of GPU RAM. Default 0.90.
-            max_model_len (int):            Maximum sequence length. Default 32768.
+            max_model_len (int):            Maximum sequence length. Default 16384.
             block_size (int):               Tokens per KV block. Default 16.
             enforce_eager (bool):           Disable CUDA graphs. Default True.
         """
@@ -402,7 +402,7 @@ class StreamingLLMvLLMMethod(BaseMethod):
             model=model_name,
             trust_remote_code=True,
             gpu_memory_utilization=kwargs.get("gpu_memory_utilization", 0.90),
-            max_model_len=kwargs.get("max_model_len", 32768),
+            max_model_len=kwargs.get("max_model_len", 16384),
             block_size=self.block_size,
             dtype="auto",
             enforce_eager=kwargs.get("enforce_eager", True),

@@ -61,11 +61,20 @@ Limitations
 """
 
 import math
+import os
 import time
 from dataclasses import dataclass
 from typing import Optional
 
 import torch
+
+# Force vLLM to use the legacy (v0) engine so our patch targets exist:
+#   vllm.core.scheduler.Scheduler._append_slots
+#   vllm.worker.model_runner.ModelInputForGPUBuilder._compute_lens
+#   vllm.core.block_manager.SelfAttnBlockSpaceManager
+# Must be set before vllm is imported.
+os.environ.setdefault("VLLM_USE_V1", "0")
+
 from vllm import LLM, SamplingParams
 
 from methods.base import BaseMethod, MethodOutput

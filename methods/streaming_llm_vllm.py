@@ -293,9 +293,9 @@ def _patch_scheduler(policy: SinkRecentPolicy) -> None:
 
     original_append_slots = Scheduler._append_slots
 
-    def patched_append_slots(sched_self, seq_group, blocks_to_copy, **kwargs):  # noqa: ANN001
-        # Pass **kwargs through (vLLM 0.8.x adds enable_chunking kwarg).
-        result = original_append_slots(sched_self, seq_group, blocks_to_copy, **kwargs)
+    def patched_append_slots(sched_self, seq_group, blocks_to_copy, enable_chunking=False):  # noqa: ANN001
+        # enable_chunking added in vLLM 0.8.x; passed positionally by the scheduler.
+        result = original_append_slots(sched_self, seq_group, blocks_to_copy, enable_chunking)
 
         # Skip trimming during prefill (including chunked prefill).
         if seq_group.is_prefill():

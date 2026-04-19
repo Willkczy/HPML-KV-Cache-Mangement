@@ -51,8 +51,8 @@ Semantic equivalence to HF StreamingLLM
 
 Limitations
 -----------
-* Only supports ``BlockSpaceManagerV1`` (vLLM default as of v0.6.x).
-  ``BlockSpaceManagerV2`` is not patched.
+* Targets ``SelfAttnBlockSpaceManager`` (vLLM >= 0.8.x, ``vllm.core.block_manager``).
+  Earlier versions with ``BlockSpaceManagerV1`` are not supported.
 * Prefix caching is disabled (``enable_prefix_caching=False``) to avoid
   shared-block ref_count complexity.
 * Patches are global (module-level); only one active policy at a time.
@@ -101,7 +101,7 @@ def _apply_vllm_patches(policy: SinkRecentPolicy) -> None:
     Must be called BEFORE ``LLM()`` is instantiated.  Three patches are
     applied in order:
 
-    1. ``BlockSpaceManagerV1.trim_request_blocks`` — evicts middle blocks
+    1. ``SelfAttnBlockSpaceManager.trim_request_blocks`` — evicts middle blocks
     2. ``ModelInputForGPUBuilder._compute_lens`` — overrides seq_len
     3. ``Scheduler._append_slots`` — calls trim after each decode step
 
@@ -130,32 +130,39 @@ def _apply_vllm_patches(policy: SinkRecentPolicy) -> None:
     )
 
 
-# ── Patch 1: BlockSpaceManagerV1.trim_request_blocks ─────────────────────────
+# ── Patch 1: SelfAttnBlockSpaceManager.trim_request_blocks ───────────────────
 
 def _patch_block_manager(policy: SinkRecentPolicy) -> None:
-    """Add ``trim_request_blocks(seq_id)`` to ``BlockSpaceManagerV1``.
+    """Add ``trim_request_blocks(seq_id)`` to ``SelfAttnBlockSpaceManager``.
 
     The method evicts the "middle" KV blocks for a sequence, keeping only:
 
-    * ``block_table[0 : sink_blocks]``                   (attention sinks)
-    * ``block_table[total - recent_blocks : total]``     (recent window)
+    * ``blocks[0 : sink_blocks]``                  (attention sinks)
+    * ``blocks[total - recent_blocks : total]``    (recent window)
 
     Returns ``effective_kv_len = len(retained) * block_size`` in tokens.
 
-    Memory invariant: ``ref_count`` is decremented before calling
-    ``allocator.free()``, so shared blocks (prefix caching) are not
-    double-freed.
+    Memory invariant: ``block_table._allocator.free(block)`` handles
+    ref_count internally — no manual ref_count manipulation needed.
+    Prefix caching is disabled so every block is unshared (ref_count == 1).
 
-    Block_table invariant: ``block_tables[seq_id]`` is updated in-place to
-    exactly the retained set, so vLLM's internal accounting stays consistent.
+    Block_table invariant: ``block_table.update(retained)`` replaces the
+    internal block list so ``physical_block_ids`` stays consistent.
+
+    Verified against vLLM 0.8.5:
+      ``SelfAttnBlockSpaceManager`` at ``vllm.core.block_manager``
+      ``self.block_tables: Dict[SeqId, BlockTable]``
+      ``BlockTable.blocks`` → ``List[Block]`` (property)
+      ``BlockTable._allocator.free(block)`` → decrements ref_count, frees if zero
+      ``BlockTable.update(blocks: List[Block])`` → replaces internal block list
     """
     try:
-        from vllm.core.block_manager_v1 import BlockSpaceManagerV1
+        from vllm.core.block_manager import SelfAttnBlockSpaceManager
     except ImportError:
         print(
-            "[streaming_llm_vllm] WARNING: BlockSpaceManagerV1 not found — "
+            "[streaming_llm_vllm] WARNING: SelfAttnBlockSpaceManager not found — "
             "trim_request_blocks will be a no-op. "
-            "Ensure vLLM is installed and BlockSpaceManagerV1 is used."
+            "Ensure vLLM >= 0.8.x is installed."
         )
         return
 
@@ -165,47 +172,35 @@ def _patch_block_manager(policy: SinkRecentPolicy) -> None:
         if block_table is None:
             return 0
 
-        total_blocks = len(block_table)
+        blocks = block_table.blocks  # List[Block] via property
+        total_blocks = len(blocks)
         if not policy.should_trim(total_blocks):
             return total_blocks * bm_self.block_size
 
         sink_end = policy.sink_blocks
         recent_start = total_blocks - policy.recent_blocks
-        sink = block_table[:sink_end]
-        recent = block_table[recent_start:]
-        middle = block_table[sink_end:recent_start]
+        sink = blocks[:sink_end]
+        recent = blocks[recent_start:]
+        middle = blocks[sink_end:recent_start]
 
-        # Free middle blocks; respect ref_count for shared-block safety.
+        # Free middle blocks. The allocator handles ref_count internally.
+        # Deduplicate by physical_block_id to avoid double-freeing.
         freed_ids: set = set()
         for block in middle:
-            bid = id(block)
+            bid = getattr(block, "physical_block_id", id(block))
             if bid in freed_ids:
                 continue
             freed_ids.add(bid)
-
-            if block.ref_count > 1:
-                # Another sequence shares this block — just drop our reference.
-                block.ref_count -= 1
-            else:
-                # Sole owner: return to the correct allocator.
-                try:
-                    from vllm.utils import Device as VDevice
-                    if block.device == VDevice.GPU:
-                        bm_self.gpu_allocator.free(block)
-                    else:
-                        bm_self.cpu_allocator.free(block)
-                except (ImportError, AttributeError):
-                    # Fallback: running sequences are always on GPU.
-                    try:
-                        bm_self.gpu_allocator.free(block)
-                    except Exception:
-                        pass
+            try:
+                block_table._allocator.free(block)
+            except Exception:
+                pass
 
         retained = sink + recent
-        bm_self.block_tables[seq_id] = retained
+        block_table.update(retained)  # replaces _blocks list in-place
         return len(retained) * bm_self.block_size
 
-    BlockSpaceManagerV1.trim_request_blocks = trim_request_blocks
+    SelfAttnBlockSpaceManager.trim_request_blocks = trim_request_blocks
 
 
 # ── Patch 2: ModelInputForGPUBuilder._compute_lens ───────────────────────────
@@ -242,16 +237,18 @@ def _patch_model_runner() -> None:
         # Populate inter_data using the original logic.
         original_compute_lens(self, inter_data, seq_idx, seq_group_metadata)
 
-        # Override seq_len with effective_kv_len if it was set by the trim hook.
+        # Override seq_len with effective_kv_len if set by the trim hook.
+        # In vLLM 0.8.x, _compute_lens uses inter_data.seq_ids[seq_idx] directly
+        # (verified: seq_data = seq_group_metadata.seq_data[inter_data.seq_ids[seq_idx]]).
         try:
-            seq_ids = list(seq_group_metadata.seq_data.keys())
-            if seq_idx >= len(seq_ids):
-                return
-            seq_id = seq_ids[seq_idx]
+            seq_id = inter_data.seq_ids[seq_idx]
             seq_data = seq_group_metadata.seq_data[seq_id]
             effective_kv_len = getattr(seq_data, "_effective_kv_len", None)
             if effective_kv_len is not None and effective_kv_len > 0:
                 inter_data.seq_lens[seq_idx] = effective_kv_len
+                # orig_seq_lens is also set in 0.8.x; keep it consistent.
+                if hasattr(inter_data, "orig_seq_lens"):
+                    inter_data.orig_seq_lens[seq_idx] = effective_kv_len
         except (AttributeError, KeyError, IndexError):
             pass  # Safe fallback: original seq_len remains.
 
@@ -287,8 +284,9 @@ def _patch_scheduler(policy: SinkRecentPolicy) -> None:
 
     original_append_slots = Scheduler._append_slots
 
-    def patched_append_slots(sched_self, seq_group, blocks_to_copy):  # noqa: ANN001
-        result = original_append_slots(sched_self, seq_group, blocks_to_copy)
+    def patched_append_slots(sched_self, seq_group, blocks_to_copy, **kwargs):  # noqa: ANN001
+        # Pass **kwargs through (vLLM 0.8.x adds enable_chunking kwarg).
+        result = original_append_slots(sched_self, seq_group, blocks_to_copy, **kwargs)
 
         # Skip trimming during prefill (including chunked prefill).
         if seq_group.is_prefill():

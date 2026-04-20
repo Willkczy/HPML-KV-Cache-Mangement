@@ -12,6 +12,7 @@ Usage:
 """
 
 import argparse
+import gc
 import json
 import os
 import re
@@ -46,10 +47,12 @@ DEFAULTS_LONG = {
 # ── Ablation ranges ──────────────────────────────────────────────────────────
 
 ABLATION_RANGES = {
-    "gpu_memory_utilization": [0.50, 0.60, 0.70, 0.80, 0.90, 0.95],
+    # Keep the sweep in a realistic range for 7B models on shared GPUs.
+    # Very low utilization (e.g., 0.5) frequently leaves no KV cache space.
+    "gpu_memory_utilization": [0.85, 0.90, 0.93, 0.95],
     "max_model_len": {
-        "short": [1024, 2048, 4096, 8192, 16384],
-        "long":  [8192, 16384, 32768, 65536],
+        "short": [2048, 4096, 8192],
+        "long":  [8192, 16384, 24576, 32768],
     },
     "block_size": [8, 16, 32],
 }
@@ -124,6 +127,8 @@ def run_single(config_path: str, samples, model_name: str, device: str,
 
     method = PagedAttentionMethod()
     try:
+        gc.collect()
+        torch.cuda.empty_cache()
         method.setup(
             model_name=model_name,
             device=device,
@@ -138,7 +143,9 @@ def run_single(config_path: str, samples, model_name: str, device: str,
             "accuracy": 0.0, "rouge_l": 0.0,
             "avg_ttft_ms": 0.0, "avg_decode_latency_ms": 0.0,
             "avg_total_time_ms": 0.0, "avg_throughput_tok_s": 0.0,
-            "avg_peak_kv_memory_mb": 0.0, "error": str(e),
+            "avg_peak_kv_memory_mb": 0.0,
+            "status": "setup_failed",
+            "error": str(e),
         }
 
     use_rouge = dataset_name == "govreport"
@@ -177,6 +184,8 @@ def run_single(config_path: str, samples, model_name: str, device: str,
         records.append(record)
 
     method.teardown()
+    gc.collect()
+    torch.cuda.empty_cache()
 
     valid = [r for r in records if not r.get("oom")]
     n_oom = len(records) - len(valid)
@@ -185,6 +194,7 @@ def run_single(config_path: str, samples, model_name: str, device: str,
     summary = {
         "n_samples": n,
         "n_oom": n_oom,
+        "status": "ok",
         "avg_ttft_ms": round(avg("ttft_ms"), 2),
         "avg_decode_latency_ms": round(avg("decode_latency_ms"), 2),
         "avg_total_time_ms": round(avg("total_time_ms"), 2),
@@ -214,7 +224,7 @@ def print_ablation_table(title: str, param_name: str, rows: list[dict],
     quality_hdr = "Accuracy" if quality_key == "accuracy" else "ROUGE-L"
     header = (f"{'Value':>12} | {quality_hdr:>10} | {'TTFT(ms)':>10} | "
               f"{'Decode(ms)':>10} | {'Tok/s':>8} | {'KV Mem(MB)':>11} | "
-              f"{'OOM':>4} | {'Samples':>7}")
+              f"{'OOM':>4} | {'Samples':>7} | {'Status':>12}")
     print(header)
     print("-" * len(header))
 
@@ -224,7 +234,7 @@ def print_ablation_table(title: str, param_name: str, rows: list[dict],
         val_str = str(row["value"])
         print(f"{val_str:>12} | {quality_val:>10.4f} | {s['avg_ttft_ms']:>10.2f} | "
               f"{s['avg_decode_latency_ms']:>10.2f} | {s['avg_throughput_tok_s']:>8.2f} | "
-              f"{s['avg_peak_kv_memory_mb']:>11.2f} | {s['n_oom']:>4} | {s['n_samples']:>7}")
+              f"{s['avg_peak_kv_memory_mb']:>11.2f} | {s['n_oom']:>4} | {s['n_samples']:>7} | {s.get('status', 'ok'):>12}")
 
     print(f"{'='*90}\n")
 
@@ -290,7 +300,8 @@ def main():
                 block_size=defaults["block_size"],
             )
             rows.append({"value": val, "summary": summary})
-            print(f"     -> {quality_key}={summary.get(quality_key, summary.get('accuracy', 0.0)):.4f}  "
+            print(f"     -> status={summary.get('status', 'ok')}  "
+                f"{quality_key}={summary.get(quality_key, summary.get('accuracy', 0.0)):.4f}  "
                   f"TTFT={summary['avg_ttft_ms']:.1f}ms  "
                   f"KV={summary['avg_peak_kv_memory_mb']:.1f}MB  "
                   f"OOM={summary['n_oom']}")
@@ -314,7 +325,8 @@ def main():
                 block_size=defaults["block_size"],
             )
             rows.append({"value": val, "summary": summary})
-            print(f"     -> {quality_key}={summary.get(quality_key, summary.get('accuracy', 0.0)):.4f}  "
+            print(f"     -> status={summary.get('status', 'ok')}  "
+                f"{quality_key}={summary.get(quality_key, summary.get('accuracy', 0.0)):.4f}  "
                   f"TTFT={summary['avg_ttft_ms']:.1f}ms  "
                   f"KV={summary['avg_peak_kv_memory_mb']:.1f}MB  "
                   f"OOM={summary['n_oom']}")
@@ -338,7 +350,8 @@ def main():
                 block_size=val,
             )
             rows.append({"value": val, "summary": summary})
-            print(f"     -> {quality_key}={summary.get(quality_key, summary.get('accuracy', 0.0)):.4f}  "
+            print(f"     -> status={summary.get('status', 'ok')}  "
+                f"{quality_key}={summary.get(quality_key, summary.get('accuracy', 0.0)):.4f}  "
                   f"TTFT={summary['avg_ttft_ms']:.1f}ms  "
                   f"KV={summary['avg_peak_kv_memory_mb']:.1f}MB  "
                   f"OOM={summary['n_oom']}")

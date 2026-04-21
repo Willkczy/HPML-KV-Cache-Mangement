@@ -38,6 +38,15 @@ import yaml
 
 from methods import METHODS
 
+# vLLM raises VLLMValidationError (not torch.cuda.OutOfMemoryError) when a prompt
+# exceeds max_model_len. Treat it as a per-sample OOM/skip rather than crashing
+# the whole run. Import is conditional so non-vllm methods still work.
+try:
+    from vllm.exceptions import VLLMValidationError
+    _SKIPPABLE_ERRORS = (torch.cuda.OutOfMemoryError, VLLMValidationError)
+except ImportError:
+    _SKIPPABLE_ERRORS = (torch.cuda.OutOfMemoryError,)
+
 
 # ── Argument parsing ───────────────────────────────────────────────────────────
 
@@ -207,10 +216,11 @@ def main():
 
         try:
             output = method.generate(prompt, max_new_tokens=max_new_tokens)
-        except torch.cuda.OutOfMemoryError:
+        except _SKIPPABLE_ERRORS as e:
             torch.cuda.empty_cache()
+            err_kind = "OOM" if isinstance(e, torch.cuda.OutOfMemoryError) else "OVERLEN"
             print(f"  [{i+1:>3}/{n}] req={request_id:<6} {bucket:<10} "
-                  f"OOM — skipped")
+                  f"{err_kind} — skipped")
             oom_record = {
                 "id":                 f"req_{request_id}",
                 "subset":             subset,

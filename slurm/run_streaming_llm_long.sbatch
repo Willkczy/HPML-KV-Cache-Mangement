@@ -12,7 +12,7 @@ SCRATCH="/insomnia001/depts/edu/users/${UNI}"
 REPO="${SCRATCH}/HPML-KV-Cache-Mangement"
 
 module purge
-module load cuda/12.1
+module load cuda/12.3
 module load python/3.11
 
 source "${SCRATCH}/.venv/bin/activate"

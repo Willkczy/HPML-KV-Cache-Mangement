@@ -20,7 +20,7 @@ fi
 
 echo "=== Loading modules ==="
 module purge
-module load cuda/12.1
+module load cuda/12.3
 module load python/3.11
 
 echo "=== Creating virtual environment in scratch ==="

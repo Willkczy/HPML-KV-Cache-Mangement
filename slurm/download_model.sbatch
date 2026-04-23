@@ -7,12 +7,11 @@
 #SBATCH --account=edu
 #SBATCH --output=slurm-%j-download.out
 
-UNI="th3192"
+UNI="${USER}"
 SCRATCH="/insomnia001/depts/edu/users/${UNI}"
 MODEL_DIR="${SCRATCH}/models/qwen2.5-7b"
 
 module purge
-module load python/3.11
 
 source "${SCRATCH}/.venv/bin/activate"
 

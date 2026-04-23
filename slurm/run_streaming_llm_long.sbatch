@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=sllm_long
-#SBATCH --partition=gpu
+#SBATCH --partition=edu1
 #SBATCH --gres=gpu:a100:1
 #SBATCH --time=04:00:00
 #SBATCH --mem=40G

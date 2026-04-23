@@ -4,7 +4,7 @@
 
 set -e
 
-UNI="th3192"
+UNI="${USER}"
 SCRATCH="/insomnia001/depts/edu/users/${UNI}"
 VENV="${SCRATCH}/.venv"
 
@@ -21,7 +21,6 @@ fi
 echo "=== Loading modules ==="
 module purge
 module load cuda/12.3
-module load python/3.11
 
 echo "=== Creating virtual environment in scratch ==="
 python3 -m venv "${VENV}"

@@ -4,6 +4,7 @@
 #SBATCH --time=02:00:00
 #SBATCH --mem=16G
 #SBATCH --cpus-per-task=4
+#SBATCH --account=edu
 #SBATCH --output=slurm-%j-download.out
 
 UNI="th3192"

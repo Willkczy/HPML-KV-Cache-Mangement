@@ -5,6 +5,7 @@
 #SBATCH --time=00:20:00
 #SBATCH --mem=40G
 #SBATCH --cpus-per-task=4
+#SBATCH --account=edu
 #SBATCH --output=slurm-%j-smoke.out
 
 # Run 3 samples only — validate the full stack before submitting long jobs.

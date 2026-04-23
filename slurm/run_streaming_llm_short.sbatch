@@ -5,6 +5,7 @@
 #SBATCH --time=02:00:00
 #SBATCH --mem=40G
 #SBATCH --cpus-per-task=8
+#SBATCH --account=edu
 #SBATCH --output=slurm-%j-sllm_short.out
 
 UNI="th3192"

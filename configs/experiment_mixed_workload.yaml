@@ -11,6 +11,7 @@ model:
 workload:
   total_requests: 500
   seed: 42
+  arrival_rate: 2.0        # requests per second (Poisson process); set null to disable
 
   bucket_ratios:
     short: 0.50

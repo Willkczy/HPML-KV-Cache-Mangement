@@ -17,6 +17,7 @@ Usage:
 
 import argparse
 import json
+import math
 import random
 import sys
 from pathlib import Path
@@ -67,6 +68,7 @@ def generate_trace(config_path: str, output_override: str = None) -> str:
     max_new_tokens_map = wl["max_new_tokens_per_bucket"]
     source_configs = wl["source_configs"]
     trace_path = output_override or wl["trace_output_path"]
+    arrival_rate = wl.get("arrival_rate")  # requests/sec; None → no arrival times
 
     rng = random.Random(seed)
 
@@ -144,6 +146,19 @@ def generate_trace(config_path: str, output_override: str = None) -> str:
     # Re-assign sequential request_ids after shuffle
     for i, req in enumerate(all_requests):
         req["request_id"] = i
+
+    # Assign Poisson arrival times (exponential inter-arrivals at given rate)
+    if arrival_rate is not None and arrival_rate > 0:
+        t = 0.0
+        for req in all_requests:
+            req["arrival_time_s"] = round(t, 6)
+            # Exponential inter-arrival: -ln(U) / lambda
+            t += -math.log(rng.random()) / arrival_rate
+        print(f"[trace] Poisson arrivals at {arrival_rate} req/s "
+              f"(span ~{t:.1f}s for {len(all_requests)} requests)")
+    else:
+        for req in all_requests:
+            req["arrival_time_s"] = None
 
     # Write trace to disk
     trace_file = Path(trace_path)

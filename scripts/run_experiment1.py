@@ -89,18 +89,28 @@ def main():
         samples = samples[:3]
         print(f"[runner] Smoke test — using {len(samples)} samples only.")
 
-    # Instantiate and set up method
+    # Instantiate and set up method.
+    # method_defaults.<method> in the config fills in any kwarg not set via
+    # CLI. CLI flags retain precedence for backward compatibility.
     method_cls = METHODS[args.method]
     method = method_cls()
 
+    method_cfg = config.get("method_defaults", {}).get(args.method, {})
+    cli_kwargs = {
+        "start_size":    args.start_size,
+        "recent_size":   args.recent_size,
+        "block_size":    args.block_size,
+        "max_model_len": args.max_model_len,
+    }
+    setup_kwargs = {**method_cfg, **cli_kwargs}
+
     print(f"\n[runner] Setting up method '{args.method}' with model '{model_name}' ...")
+    if method_cfg:
+        print(f"[runner] method_defaults: {method_cfg}")
     method.setup(
         model_name=model_name,
         device=device,
-        start_size=args.start_size,
-        recent_size=args.recent_size,
-        block_size=args.block_size,
-        max_model_len=args.max_model_len,
+        **setup_kwargs,
     )
 
     # Experiment loop

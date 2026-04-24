@@ -6,6 +6,7 @@ Serves as the quality and latency reference for other methods.
 
 import re
 import time
+from typing import Optional
 
 import torch
 from transformers import (
@@ -153,7 +154,7 @@ class FullCacheMethod(BaseMethod):
     def _select_next_token(
         self,
         logits: torch.Tensor,
-        generated_so_far: torch.Tensor | None,
+        generated_so_far: Optional[torch.Tensor],
         temperature: float,
         repetition_penalty: float,
     ) -> torch.Tensor:

@@ -9,14 +9,14 @@
 
 UNI="${USER}"
 SCRATCH="/insomnia001/depts/edu/users/${UNI}"
-MODEL_DIR="${SCRATCH}/models/qwen2.5-7b"
+MODEL_DIR="${SCRATCH}/models/qwen2.5-7b-instruct"
 
 module purge
 
 source "${SCRATCH}/.venv/bin/activate"
 
-echo "Downloading Qwen2.5-7B to ${MODEL_DIR} ..."
-huggingface-cli download Qwen/Qwen2.5-7B \
+echo "Downloading Qwen2.5-7B-Instruct to ${MODEL_DIR} ..."
+huggingface-cli download Qwen/Qwen2.5-7B-Instruct \
     --local-dir "${MODEL_DIR}" \
     --local-dir-use-symlinks False
 

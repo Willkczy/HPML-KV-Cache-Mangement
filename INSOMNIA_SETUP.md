@@ -61,7 +61,7 @@ squeue -u ${USER}  # wait until job disappears (~1 min)
 
 Verify:
 ```bash
-ls ~/models/qwen2.5-7b/   # should show 4 safetensor shards
+ls ~/models/qwen2.5-7b-instruct/   # should show 4 safetensor shards
 ```
 
 ---

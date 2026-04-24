@@ -100,10 +100,10 @@ git clone <repo-url> && cd kv-cache-bench
 ```bash
 # Store weights outside the repo so they're never committed
 mkdir -p ~/models
-huggingface-cli download Qwen/Qwen2.5-7B --local-dir ~/models/qwen2.5-7b
+huggingface-cli download Qwen/Qwen2.5-7B-Instruct --local-dir ~/models/qwen2.5-7b-instruct
 ```
 
-All experiment configs reference the model path via `configs/`, so set it to `~/models/qwen2.5-7b`.
+All experiment configs reference the model path via `configs/`, so set it to `~/models/qwen2.5-7b-instruct`.
 
 ### 4. Daily Workflow
 

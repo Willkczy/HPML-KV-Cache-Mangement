@@ -4,7 +4,7 @@ Columbia University HPML Final Project (Spring Semester)
 
 ## What This Project Is
 
-A head-to-head benchmark of four KV cache management strategies for transformer inference, using **Qwen2.5-7B** as the shared model. The goal is to measure memory efficiency, latency, throughput, and generation quality trade-offs across realistic context lengths.
+A head-to-head benchmark of four KV cache management strategies for transformer inference, using **Qwen2.5-7B-Instruct** as the shared model. The goal is to measure memory efficiency, latency, throughput, and generation quality trade-offs across realistic context lengths.
 
 ## Team & Ownership
 
@@ -153,7 +153,7 @@ To add a new dataset: write a `_load_<name>(config, tokenizer) → list[Sample]`
 
 - **Compute:** GCP VMs (A100 40GB or L4), one per team member for dev
 - **Official benchmarks:** All methods run sequentially on a single standardized VM (A100) to eliminate hardware variance
-- **Model weights:** `~/models/qwen2.5-7b` (never committed)
+- **Model weights:** `~/models/qwen2.5-7b-instruct` (never committed)
 - **Results:** Local `results/` → upload to shared GCS bucket with `gsutil cp`
 - **Profiling:** PyTorch Profiler + NVIDIA Nsight Systems
 

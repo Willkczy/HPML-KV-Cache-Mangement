@@ -4,8 +4,8 @@ experiment:
   description: "Controlled single-request eval on MMLU (128-256 tokens)"
 
 model:
-  name: "Qwen/Qwen2.5-7B"
-  local_path: "~/models/qwen2.5-7b"   # override if weights are elsewhere
+  name: "Qwen/Qwen2.5-7B-Instruct"
+  local_path: "~/models/qwen2.5-7b-instruct"   # override if weights are elsewhere
   device: "cuda"
 
 data:
@@ -26,6 +26,7 @@ data:
 generation:
   max_new_tokens: 10                    # MMLU only needs a short answer (A/B/C/D)
   temperature: 0.0                      # greedy for reproducibility
+  repetition_penalty: 1.1               # suppress decode loops (plumbed in PR-B)
 
 output:
   results_dir: "results/exp1_short"

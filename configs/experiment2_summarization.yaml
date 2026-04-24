@@ -4,8 +4,8 @@ experiment:
   description: "Government report summarization for long-generation KV cache benchmarking"
 
 model:
-  name: "Qwen/Qwen2.5-7B"
-  local_path: "~/models/qwen2.5-7b"
+  name: "Qwen/Qwen2.5-7B-Instruct"
+  local_path: "~/models/qwen2.5-7b-instruct"
   device: "cuda"
 
 data:
@@ -19,6 +19,7 @@ data:
 generation:
   max_new_tokens: 512                   # summaries are ~200-700 tokens
   temperature: 0.0
+  repetition_penalty: 1.1               # suppress decode loops (plumbed in PR-B)
 
 output:
   results_dir: "results/exp2_summarization"

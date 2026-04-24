@@ -26,7 +26,7 @@ Our GCP org **blocks external IPs**, so always add `--no-address`.
 
 ### Recommended: NVIDIA L4 (24 GB VRAM)
 
-Sufficient for Qwen2.5-7B in FP16 (~14.5 GB) with room for KV cache.
+Sufficient for Qwen2.5-7B-Instruct in BF16 (~14.5 GB) with room for KV cache.
 
 ```bash
 gcloud compute instances create kvcache-<your-name> \
@@ -61,7 +61,7 @@ gcloud compute instances create kvcache-<your-name> \
 > ```
 
 > **GPU sizing reference:**
-> | GPU | VRAM | Fits Qwen2.5-7B FP16? |
+> | GPU | VRAM | Fits Qwen2.5-7B-Instruct BF16? |
 > |-----|------|------------------------|
 > | Tesla T4 | 15 GB | ✗ Too tight (~14.5 GB model alone) |
 > | NVIDIA L4 | 23 GB | ✓ Recommended for development |
@@ -189,7 +189,7 @@ pip install huggingface_hub[cli]
 
 ```bash
 mkdir -p ~/models
-huggingface-cli download Qwen/Qwen2.5-7B --local-dir ~/models/qwen2.5-7b
+huggingface-cli download Qwen/Qwen2.5-7B-Instruct --local-dir ~/models/qwen2.5-7b-instruct
 ```
 
 This downloads ~14 GB.  Weights are stored outside the repo and never
@@ -203,7 +203,7 @@ import torch
 from methods.full_cache import FullCacheMethod
 
 m = FullCacheMethod()
-m.setup(model_name='$HOME/models/qwen2.5-7b', device='cuda')
+m.setup(model_name='$HOME/models/qwen2.5-7b-instruct', device='cuda')
 print('dtype:', next(m.model.parameters()).dtype)
 print('GPU mem (MB):', round(torch.cuda.memory_allocated() / 1024**2, 1))
 m.teardown()

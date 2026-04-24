@@ -1,6 +1,6 @@
 # KV Cache Management for LLM Inference
 
-A comparative study of four KV cache management strategies under realistic serving workloads, using **Qwen2.5-7B** as the primary model.
+A comparative study of four KV cache management strategies under realistic serving workloads, using **Qwen2.5-7B-Instruct** as the primary model.
 
 ## Why This Matters
 
@@ -68,7 +68,7 @@ pip install -r requirements.txt
 
 # 3. Download model weights (on your GCP VM)
 mkdir -p ~/models
-huggingface-cli download Qwen/Qwen2.5-7B --local-dir ~/models/qwen2.5-7b
+huggingface-cli download Qwen/Qwen2.5-7B-Instruct --local-dir ~/models/qwen2.5-7b-instruct
 
 # 4. Run an experiment
 python scripts/run_experiment1.py \
@@ -185,6 +185,6 @@ See `CONTRIBUTING.md` for branching rules, GCP VM setup, and the full collaborat
 
 - **Code:** GitHub (branch strategy in CONTRIBUTING.md)
 - **Compute:** Individual GCP VMs per team member (GPU: A100 or L4)
-- **Model weights:** Stored locally at `~/models/qwen2.5-7b` (not committed)
+- **Model weights:** Stored locally at `~/models/qwen2.5-7b-instruct` (not committed)
 - **Results:** Local `results/` dir, synced to shared GCS bucket
 - **Profiling:** PyTorch Profiler traces + Nsight `.nsys-rep` files

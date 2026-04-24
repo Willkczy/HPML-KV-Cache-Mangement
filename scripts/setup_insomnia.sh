@@ -29,8 +29,14 @@ source "${VENV}/bin/activate"
 echo "=== Installing dependencies ==="
 pip install --upgrade pip
 pip install torch==2.3.0 --index-url https://download.pytorch.org/whl/cu121
-# Skip vllm by default — only needed for feat/paged-attention
-grep -v "^vllm" requirements.txt | pip install -r /dev/stdin
+# Install vllm only if on feat/paged-attention or explicitly requested
+BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
+if echo "${BRANCH}" | grep -qiE "paged.attention|dev" || [ "${INSTALL_VLLM}" = "1" ]; then
+    echo "=== Installing vllm (branch: ${BRANCH}) ==="
+    pip install -r requirements.txt
+else
+    grep -v "^vllm" requirements.txt | pip install -r /dev/stdin
+fi
 
 echo ""
 echo "=== Setup complete ==="

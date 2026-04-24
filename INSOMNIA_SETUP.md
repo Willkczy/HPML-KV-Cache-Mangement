@@ -48,12 +48,7 @@ git checkout feat/<your-branch>
 bash scripts/setup_insomnia.sh
 ```
 
-This creates a venv in scratch and installs all dependencies (~15 min).
-
-> **Note:** If you are NOT on `feat/paged-attention`, skip vllm to save ~10GB disk:
-> ```bash
-> grep -v "^vllm" requirements.txt | pip install -r /dev/stdin
-> ```
+This creates a venv in scratch and installs all dependencies (~15 min). vllm is skipped automatically unless you are on `feat/paged-attention`.
 
 ---
 

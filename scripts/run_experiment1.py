@@ -46,15 +46,18 @@ def parse_args():
                         help="Which method to run.")
     parser.add_argument("--smoke_test", action="store_true",
                         help="Run only the first 3 samples for quick validation.")
-    # StreamingLLM-specific (ignored by other methods via **kwargs)
-    parser.add_argument("--start_size", type=int, default=4,
+    # StreamingLLM-specific (ignored by other methods via **kwargs).
+    # Defaults are None so method_defaults in the config can actually win
+    # when the user doesn't pass the flag; methods apply their own defaults
+    # when the kwarg is absent.
+    parser.add_argument("--start_size", type=int, default=None,
                         help="StreamingLLM: number of attention sink tokens.")
-    parser.add_argument("--recent_size", type=int, default=256,
+    parser.add_argument("--recent_size", type=int, default=None,
                         help="StreamingLLM: size of the recent token window.")
     # PagedAttention-specific (ignored by other methods via **kwargs)
-    parser.add_argument("--block_size", type=int, default=16,
+    parser.add_argument("--block_size", type=int, default=None,
                         help="PagedAttention: tokens per KV block.")
-    parser.add_argument("--max_model_len", type=int, default=4096,
+    parser.add_argument("--max_model_len", type=int, default=None,
                         help="PagedAttention: max sequence length for vLLM engine.")
     return parser.parse_args()
 
@@ -90,17 +93,19 @@ def main():
         print(f"[runner] Smoke test — using {len(samples)} samples only.")
 
     # Instantiate and set up method.
-    # method_defaults.<method> in the config fills in any kwarg not set via
-    # CLI. CLI flags retain precedence for backward compatibility.
+    # Precedence (low → high): method defaults → method_defaults.<method>
+    # in config → CLI flag (only when explicitly passed).
     method_cls = METHODS[args.method]
     method = method_cls()
 
     method_cfg = config.get("method_defaults", {}).get(args.method, {})
     cli_kwargs = {
-        "start_size":    args.start_size,
-        "recent_size":   args.recent_size,
-        "block_size":    args.block_size,
-        "max_model_len": args.max_model_len,
+        k: v for k, v in {
+            "start_size":    args.start_size,
+            "recent_size":   args.recent_size,
+            "block_size":    args.block_size,
+            "max_model_len": args.max_model_len,
+        }.items() if v is not None
     }
     setup_kwargs = {**method_cfg, **cli_kwargs}
 

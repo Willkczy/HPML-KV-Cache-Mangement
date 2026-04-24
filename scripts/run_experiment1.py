@@ -22,7 +22,6 @@ Usage:
 import argparse
 import json
 import os
-import re
 import sys
 import time
 import torch
@@ -34,6 +33,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import yaml
 
 from data.pipeline import load_samples
+from eval.metrics import compute_rouge_l, extract_answer
 from methods import METHODS
 
 
@@ -57,67 +57,6 @@ def parse_args():
     parser.add_argument("--max_model_len", type=int, default=4096,
                         help="PagedAttention: max sequence length for vLLM engine.")
     return parser.parse_args()
-
-
-# ── Answer extraction ─────────────────────────────────────────────────────────
-
-def extract_answer(generated_text: str) -> str:
-    """Extract A/B/C/D answer from generated text.
-
-    Handles short answers ("B"), preambles ("The answer is B"),
-    and chain-of-thought ("...therefore the answer is D").
-    Prefers structured patterns; falls back to last standalone letter.
-    """
-    text = generated_text.strip()
-
-    # Try structured patterns first (last match wins)
-    patterns = [
-        r'[Aa]nswer\s*(?:is|:)\s*([A-D])',
-        r'\b([A-D])\b\s*$',              # single letter at end
-        r'^\s*([A-D])\b',                # single letter at start
-    ]
-    for pattern in patterns:
-        matches = re.findall(pattern, text)
-        if matches:
-            return matches[-1].upper()
-
-    # Fallback: last standalone A/B/C/D
-    matches = re.findall(r'\b([A-D])\b', text)
-    if matches:
-        return matches[-1].upper()
-
-    return ""
-
-
-# ── ROUGE-L for summarization ────────────────────────────────────────────────
-
-def _lcs_length(x: list[str], y: list[str]) -> int:
-    """Compute length of the longest common subsequence."""
-    m, n = len(x), len(y)
-    prev = [0] * (n + 1)
-    for i in range(1, m + 1):
-        curr = [0] * (n + 1)
-        for j in range(1, n + 1):
-            if x[i - 1] == y[j - 1]:
-                curr[j] = prev[j - 1] + 1
-            else:
-                curr[j] = max(curr[j - 1], prev[j])
-        prev = curr
-    return prev[n]
-
-
-def compute_rouge_l(prediction: str, reference: str) -> float:
-    """Compute ROUGE-L F1 score between prediction and reference."""
-    pred_tokens = prediction.lower().split()
-    ref_tokens = reference.lower().split()
-    if not pred_tokens or not ref_tokens:
-        return 0.0
-    lcs = _lcs_length(pred_tokens, ref_tokens)
-    precision = lcs / len(pred_tokens)
-    recall = lcs / len(ref_tokens)
-    if precision + recall == 0:
-        return 0.0
-    return 2 * precision * recall / (precision + recall)
 
 
 # ── Main ───────────────────────────────────────────────────────────────────────

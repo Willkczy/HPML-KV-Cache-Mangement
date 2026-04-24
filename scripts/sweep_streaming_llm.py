@@ -25,7 +25,6 @@ Summary table is printed at the end.
 import argparse
 import json
 import os
-import re
 import sys
 import time
 import torch
@@ -36,6 +35,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import yaml
 
 from data.pipeline import load_samples
+from eval.metrics import compute_rouge_l, extract_answer
 from methods.streaming_llm import StreamingLLMMethod
 
 
@@ -45,26 +45,6 @@ WINDOW_SIZES = [256, 512, 1024, 2048, 4096, 8192]
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
-
-def extract_answer(text: str) -> str:
-    patterns = [
-        r'[Aa]nswer\s*(?:is|:)\s*([A-D])',
-        r'\b([A-D])\b\s*$',
-        r'^\s*([A-D])\b',
-    ]
-    for pattern in patterns:
-        matches = re.findall(pattern, text)
-        if matches:
-            return matches[-1].upper()
-    matches = re.findall(r'\b([A-D])\b', text)
-    return matches[-1].upper() if matches else ""
-
-
-def compute_rouge_l(hypothesis: str, reference: str) -> float:
-    from rouge_score import rouge_scorer
-    scorer = rouge_scorer.RougeScorer(["rougeL"], use_stemmer=True)
-    return scorer.score(reference, hypothesis)["rougeL"].fmeasure
-
 
 def run_one(method, samples, dataset_name, max_new_tokens, use_rouge,
             temperature=0.0, repetition_penalty=1.0):

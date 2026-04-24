@@ -28,6 +28,7 @@ import json
 import os
 import re
 import sys
+import time
 import torch
 from pathlib import Path
 
@@ -203,6 +204,8 @@ def main():
 
     print(f"\n[runner] Replaying {n} requests ...\n")
 
+    experiment_start_wall = time.perf_counter()
+
     for i, req in enumerate(trace):
         max_new_tokens = req["max_new_tokens"]
         prompt = req["prompt"]
@@ -213,6 +216,17 @@ def main():
         request_id = req["request_id"]
 
         use_rouge = source_dataset in ("govreport", "longbench")
+
+        # Queue wait: how long this request sat waiting past its arrival time
+        arrival_time_s = req.get("arrival_time_s")
+        actual_start_wall = time.perf_counter()
+        if arrival_time_s is not None:
+            queue_wait_ms = max(
+                0.0,
+                (actual_start_wall - experiment_start_wall - arrival_time_s) * 1000.0,
+            )
+        else:
+            queue_wait_ms = 0.0
 
         try:
             output = method.generate(prompt, max_new_tokens=max_new_tokens)
@@ -230,6 +244,8 @@ def main():
                 "ttft_ms":            0,
                 "decode_latency_ms":  0,
                 "total_time_ms":      0,
+                "queue_wait_ms":      round(queue_wait_ms, 3),
+                "e2e_latency_ms":     0,
                 "throughput_tok_s":   0,
                 "peak_kv_memory_mb":  0,
                 "prefill_peak_kv_memory_mb": 0,
@@ -258,6 +274,8 @@ def main():
             "ttft_ms":            round(output.ttft_ms, 3),
             "decode_latency_ms":  round(output.decode_latency_ms, 3),
             "total_time_ms":      round(output.total_time_ms, 3),
+            "queue_wait_ms":      round(queue_wait_ms, 3),
+            "e2e_latency_ms":     round(queue_wait_ms + output.total_time_ms, 3),
             "throughput_tok_s":   round(throughput, 2),
             "peak_kv_memory_mb":  round(output.peak_kv_memory_mb, 3),
             "prefill_peak_kv_memory_mb": round(output.metadata.get("prefill_peak_kv_memory_mb", output.peak_kv_memory_mb), 3),
@@ -281,6 +299,7 @@ def main():
         records.append(record)
 
         print(f"  [{i+1:>3}/{n}] req={request_id:<6} {bucket:<10} "
+              f"queue={queue_wait_ms:6.1f}ms  "
               f"TTFT={output.ttft_ms:6.1f}ms  "
               f"decode={output.decode_latency_ms:6.1f}ms  "
               f"mem={output.peak_kv_memory_mb:6.1f}MB  "
@@ -299,6 +318,8 @@ def main():
     # Percentiles (overall)
     ttft_vals = [r["ttft_ms"] for r in valid_records]
     total_vals = [r["total_time_ms"] for r in valid_records]
+    queue_vals = [r["queue_wait_ms"] for r in valid_records]
+    e2e_vals   = [r["e2e_latency_ms"] for r in valid_records]
 
     # Per-bucket breakdown
     bucket_names = ["short", "medium", "long", "very_long"]
@@ -316,6 +337,8 @@ def main():
 
         b_ttft = [r["ttft_ms"] for r in b_records]
         b_total = [r["total_time_ms"] for r in b_records]
+        b_queue = [r["queue_wait_ms"] for r in b_records]
+        b_e2e   = [r["e2e_latency_ms"] for r in b_records]
         b_all = [r for r in records if r["bucket"] == bname]
         b_oom = len(b_all) - len(b_records)
 
@@ -324,12 +347,20 @@ def main():
             "n_oom":              b_oom,
             "avg_ttft_ms":        round(sum(b_ttft) / len(b_ttft), 3),
             "avg_total_time_ms":  round(sum(b_total) / len(b_total), 3),
+            "avg_queue_wait_ms":  round(sum(b_queue) / len(b_queue), 3),
+            "avg_e2e_latency_ms": round(sum(b_e2e) / len(b_e2e), 3),
             "p50_ttft_ms":        round(percentile(b_ttft, 50), 3),
             "p95_ttft_ms":        round(percentile(b_ttft, 95), 3),
             "p99_ttft_ms":        round(percentile(b_ttft, 99), 3),
             "p50_total_time_ms":  round(percentile(b_total, 50), 3),
             "p95_total_time_ms":  round(percentile(b_total, 95), 3),
             "p99_total_time_ms":  round(percentile(b_total, 99), 3),
+            "p50_queue_wait_ms":  round(percentile(b_queue, 50), 3),
+            "p95_queue_wait_ms":  round(percentile(b_queue, 95), 3),
+            "p99_queue_wait_ms":  round(percentile(b_queue, 99), 3),
+            "p50_e2e_latency_ms": round(percentile(b_e2e, 50), 3),
+            "p95_e2e_latency_ms": round(percentile(b_e2e, 95), 3),
+            "p99_e2e_latency_ms": round(percentile(b_e2e, 99), 3),
         }
 
         # Quality per bucket
@@ -356,6 +387,8 @@ def main():
         "avg_ttft_ms":         round(avg("ttft_ms"), 3),
         "avg_decode_latency_ms": round(avg("decode_latency_ms"), 3),
         "avg_total_time_ms":   round(avg("total_time_ms"), 3),
+        "avg_queue_wait_ms":   round(avg("queue_wait_ms"), 3),
+        "avg_e2e_latency_ms":  round(avg("e2e_latency_ms"), 3),
         "avg_throughput_tok_s": round(avg("throughput_tok_s"), 2),
         "avg_peak_kv_memory_mb": round(avg("peak_kv_memory_mb"), 3),
         "p50_ttft_ms":         round(percentile(ttft_vals, 50), 3),
@@ -364,6 +397,12 @@ def main():
         "p50_total_time_ms":   round(percentile(total_vals, 50), 3),
         "p95_total_time_ms":   round(percentile(total_vals, 95), 3),
         "p99_total_time_ms":   round(percentile(total_vals, 99), 3),
+        "p50_queue_wait_ms":   round(percentile(queue_vals, 50), 3),
+        "p95_queue_wait_ms":   round(percentile(queue_vals, 95), 3),
+        "p99_queue_wait_ms":   round(percentile(queue_vals, 99), 3),
+        "p50_e2e_latency_ms":  round(percentile(e2e_vals, 50), 3),
+        "p95_e2e_latency_ms":  round(percentile(e2e_vals, 95), 3),
+        "p99_e2e_latency_ms":  round(percentile(e2e_vals, 99), 3),
         "per_bucket":          per_bucket,
     }
 
@@ -384,6 +423,8 @@ def main():
     print(f"  Requests:  {len(records)} ({n_oom} OOM)")
     print(f"  Avg TTFT:          {summary['avg_ttft_ms']:.1f} ms")
     print(f"  Avg decode:        {summary['avg_decode_latency_ms']:.1f} ms")
+    print(f"  Avg queue wait:    {summary['avg_queue_wait_ms']:.1f} ms")
+    print(f"  Avg E2E latency:   {summary['avg_e2e_latency_ms']:.1f} ms")
     print(f"  Avg throughput:    {summary['avg_throughput_tok_s']:.1f} tok/s")
     print(f"  Avg peak KV mem:   {summary['avg_peak_kv_memory_mb']:.1f} MB")
     print(f"  P50 TTFT:          {summary['p50_ttft_ms']:.1f} ms")
@@ -392,6 +433,12 @@ def main():
     print(f"  P50 total:         {summary['p50_total_time_ms']:.1f} ms")
     print(f"  P95 total:         {summary['p95_total_time_ms']:.1f} ms")
     print(f"  P99 total:         {summary['p99_total_time_ms']:.1f} ms")
+    print(f"  P50 queue wait:    {summary['p50_queue_wait_ms']:.1f} ms")
+    print(f"  P95 queue wait:    {summary['p95_queue_wait_ms']:.1f} ms")
+    print(f"  P99 queue wait:    {summary['p99_queue_wait_ms']:.1f} ms")
+    print(f"  P50 E2E latency:   {summary['p50_e2e_latency_ms']:.1f} ms")
+    print(f"  P95 E2E latency:   {summary['p95_e2e_latency_ms']:.1f} ms")
+    print(f"  P99 E2E latency:   {summary['p99_e2e_latency_ms']:.1f} ms")
 
     if all_mmlu:
         print(f"  MMLU accuracy:     {summary['overall_accuracy']:.1%} ({len(all_mmlu)} samples)")

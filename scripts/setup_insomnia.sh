@@ -29,7 +29,8 @@ source "${VENV}/bin/activate"
 echo "=== Installing dependencies ==="
 pip install --upgrade pip
 pip install torch==2.3.0 --index-url https://download.pytorch.org/whl/cu121
-pip install -r requirements.txt
+# Skip vllm by default — only needed for feat/paged-attention
+grep -v "^vllm" requirements.txt | pip install -r /dev/stdin
 
 echo ""
 echo "=== Setup complete ==="

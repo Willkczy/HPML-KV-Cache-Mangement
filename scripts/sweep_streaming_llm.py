@@ -66,12 +66,18 @@ def compute_rouge_l(hypothesis: str, reference: str) -> float:
     return scorer.score(reference, hypothesis)["rougeL"].fmeasure
 
 
-def run_one(method, samples, dataset_name, max_new_tokens, use_rouge):
+def run_one(method, samples, dataset_name, max_new_tokens, use_rouge,
+            temperature=0.0, repetition_penalty=1.0):
     """Run method on samples, return list of records."""
     records = []
     for sample in samples:
         try:
-            out = method.generate(sample.prompt, max_new_tokens=max_new_tokens)
+            out = method.generate(
+                sample.prompt,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                repetition_penalty=repetition_penalty,
+            )
         except torch.cuda.OutOfMemoryError:
             torch.cuda.empty_cache()
             records.append({"id": sample.id, "oom": True,
@@ -163,7 +169,10 @@ def main():
         model_name     = config["model"].get("local_path") or config["model"]["name"]
         model_name     = os.path.expanduser(model_name)
         device         = config["model"]["device"]
-        max_new_tokens = config["generation"]["max_new_tokens"]
+        gen_cfg        = config["generation"]
+        max_new_tokens     = gen_cfg["max_new_tokens"]
+        temperature        = gen_cfg.get("temperature", 0.0)
+        repetition_penalty = gen_cfg.get("repetition_penalty", 1.0)
         dataset_name   = config["data"]["dataset"]
         use_rouge      = dataset_name == "govreport"
 
@@ -187,7 +196,8 @@ def main():
             method.setup(model_name, device=device,
                          start_size=args.start_size, recent_size=recent_size)
 
-            records = run_one(method, samples, dataset_name, max_new_tokens, use_rouge)
+            records = run_one(method, samples, dataset_name, max_new_tokens, use_rouge,
+                              temperature=temperature, repetition_penalty=repetition_penalty)
             method.teardown()
 
             summary = summarise(records, use_rouge)

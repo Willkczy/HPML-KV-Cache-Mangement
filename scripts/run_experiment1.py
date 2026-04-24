@@ -133,7 +133,10 @@ def main():
     model_name  = config["model"].get("local_path") or config["model"]["name"]
     model_name  = os.path.expanduser(model_name)
     device      = config["model"]["device"]
-    max_new_tokens = config["generation"]["max_new_tokens"]
+    gen_cfg     = config["generation"]
+    max_new_tokens     = gen_cfg["max_new_tokens"]
+    temperature        = gen_cfg.get("temperature", 0.0)
+    repetition_penalty = gen_cfg.get("repetition_penalty", 1.0)
     results_dir = Path(config["output"]["results_dir"])
     results_dir.mkdir(parents=True, exist_ok=True)
 
@@ -170,7 +173,12 @@ def main():
         t0 = time.perf_counter()
 
         try:
-            output = method.generate(sample.prompt, max_new_tokens=max_new_tokens)
+            output = method.generate(
+                sample.prompt,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                repetition_penalty=repetition_penalty,
+            )
         except torch.cuda.OutOfMemoryError:
             torch.cuda.empty_cache()
             print(f"  [{i+1:>3}/{n}] {sample.id:<45} "

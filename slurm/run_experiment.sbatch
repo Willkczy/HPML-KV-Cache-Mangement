@@ -13,8 +13,9 @@
 #   CONFIG  — path to yaml config, e.g. configs/experiment1_short.yaml
 #
 # Optional env vars:
-#   START_SIZE   — StreamingLLM attention sink size (default: 4)
-#   RECENT_SIZE  — StreamingLLM sliding window size (default: 1024)
+#   START_SIZE    — StreamingLLM attention sink size (default: 4)
+#   RECENT_SIZE   — StreamingLLM sliding window size (default: 1024)
+#   MAX_MODEL_LEN — PagedAttention max sequence length (auto-set by config if not specified)
 #
 # Example:
 #   sbatch --export=ALL,METHOD=h2o,CONFIG=configs/experiment1_short.yaml slurm/run_experiment.sbatch
@@ -44,6 +45,21 @@ if [ "${METHOD}" = "streaming_llm" ]; then
     START_SIZE=${START_SIZE:-4}
     RECENT_SIZE=${RECENT_SIZE:-1024}
     EXTRA_ARGS="--start_size ${START_SIZE} --recent_size ${RECENT_SIZE}"
+fi
+
+if [ "${METHOD}" = "paged_attention" ]; then
+    # Auto-set max_model_len based on config if not overridden
+    if [ -z "${MAX_MODEL_LEN}" ]; then
+        case "${CONFIG}" in
+            *experiment1_short*)       MAX_MODEL_LEN=4096  ;;
+            *experiment2_long_explain*) MAX_MODEL_LEN=34000 ;;
+            *experiment2_long*)        MAX_MODEL_LEN=34000 ;;
+            *experiment2_summarization*) MAX_MODEL_LEN=18000 ;;
+            *)                         MAX_MODEL_LEN=34000 ;;
+        esac
+    fi
+    EXTRA_ARGS="${EXTRA_ARGS} --max_model_len ${MAX_MODEL_LEN}"
+    echo "PagedAttention: max_model_len=${MAX_MODEL_LEN}"
 fi
 
 python scripts/run_experiment1.py \

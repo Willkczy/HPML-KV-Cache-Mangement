@@ -15,7 +15,7 @@ from transformers import (
     RepetitionPenaltyLogitsProcessor,
 )
 
-from data.prompting import format_as_chat, has_chat_template
+from data.prompting import has_chat_template
 from methods.base import BaseMethod, MethodOutput, kv_memory_mb
 
 
@@ -51,13 +51,17 @@ class FullCacheMethod(BaseMethod):
         repetition_penalty = float(kwargs.get("repetition_penalty", 1.0))
 
         # ── Tokenize ──────────────────────────────────────────────
-        formatted_prompt = format_as_chat(prompt, self.tokenizer)
-        inputs = self.tokenizer(
-            formatted_prompt,
-            return_tensors="pt",
-            add_special_tokens=not has_chat_template(self.tokenizer),
-        ).to(self.device)
-        input_ids = inputs["input_ids"]
+        if has_chat_template(self.tokenizer):
+            input_ids = self.tokenizer.apply_chat_template(
+                [{"role": "user", "content": prompt}],
+                add_generation_prompt=True,
+                return_tensors="pt",
+            ).to(self.device)
+        else:
+            input_ids = self.tokenizer(
+                prompt,
+                return_tensors="pt",
+            )["input_ids"].to(self.device)
         prompt_tokens = input_ids.shape[1]
 
         # ── Memory baseline ───────────────────────────────────────

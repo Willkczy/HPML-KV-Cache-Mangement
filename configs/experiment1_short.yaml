@@ -24,7 +24,7 @@ data:
   num_few_shot: 5                       # MMLU standard is 5-shot
 
 generation:
-  max_new_tokens: 10                    # MMLU only needs a short answer (A/B/C/D)
+  max_new_tokens: 4                     # leave room for a letter + newline, not a paragraph
   temperature: 0.0                      # greedy for reproducibility
   repetition_penalty: 1.1               # suppress decode loops (plumbed in PR-B)
 

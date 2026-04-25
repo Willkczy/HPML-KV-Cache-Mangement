@@ -73,6 +73,7 @@ def _load_mmlu(config: dict, tokenizer) -> list[Sample]:
         subjects = list(set(ds["subject"]))
 
     samples = []
+    instruction = "Answer with exactly one letter (A, B, C, or D). Do not explain.\n\n"
 
     for subject in subjects:
         # Load few-shot examples from dev split
@@ -90,7 +91,7 @@ def _load_mmlu(config: dict, tokenizer) -> list[Sample]:
         count = 0
         for i, example in enumerate(test_split):
             question = _format_mmlu_question(example)
-            prompt = fewshot_prefix + question
+            prompt = instruction + fewshot_prefix + question
             reference = MMLU_CHOICES[example["answer"]]
 
             # Token count filter
@@ -147,7 +148,10 @@ def _format_longbench_question(example: dict, prompt_style: str = "short") -> st
             "then explain your reasoning step by step."
         )
     else:
-        formatted += "Answer:"
+        formatted += (
+            "\nAnswer with exactly one letter (A, B, C, or D). Do not explain.\n"
+            "Answer:"
+        )
     return formatted
 
 

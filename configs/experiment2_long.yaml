@@ -21,7 +21,7 @@ data:
     max: 16000
 
 generation:
-  max_new_tokens: 10                    # multiple choice: A/B/C/D
+  max_new_tokens: 4                     # leave room for a letter + newline, not a paragraph
   temperature: 0.0
   repetition_penalty: 1.1               # suppress decode loops (plumbed in PR-B)
 

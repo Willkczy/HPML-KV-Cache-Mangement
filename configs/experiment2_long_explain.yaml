@@ -21,7 +21,7 @@ data:
     max: 16000
 
 generation:
-  max_new_tokens: 512                   # longer generation for explanation
+  max_new_tokens: 1024                  # room for full CoT reasoning + final "Answer: <letter>"
   temperature: 0.0
 
 output:

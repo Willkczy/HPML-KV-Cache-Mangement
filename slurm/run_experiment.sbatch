@@ -15,7 +15,7 @@
 # Optional env vars:
 #   START_SIZE              — StreamingLLM attention sink size (default: 4)
 #   RECENT_SIZE             — StreamingLLM sliding window size (default: 1024)
-#   MAX_MODEL_LEN           — vLLM max sequence length (default: 32768)
+#   MAX_MODEL_LEN           — vLLM max sequence length (default: 32768 for streaming_llm_vllm, auto by config for paged_attention)
 #   GPU_MEMORY_UTILIZATION  — vLLM GPU memory fraction (default: 0.90)
 #   BLOCK_SIZE              — vLLM KV block size in tokens (default: 16)
 #
@@ -55,6 +55,21 @@ if [ "${METHOD}" = "streaming_llm_vllm" ]; then
     GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.90}
     BLOCK_SIZE=${BLOCK_SIZE:-16}
     EXTRA_ARGS="--start_size ${START_SIZE} --recent_size ${RECENT_SIZE} --max_model_len ${MAX_MODEL_LEN} --gpu_memory_utilization ${GPU_MEMORY_UTILIZATION} --block_size ${BLOCK_SIZE}"
+fi
+
+if [ "${METHOD}" = "paged_attention" ]; then
+    # Auto-set max_model_len based on config if not overridden
+    if [ -z "${MAX_MODEL_LEN}" ]; then
+        case "${CONFIG}" in
+            *experiment1_short*)       MAX_MODEL_LEN=4096  ;;
+            *experiment2_long_explain*) MAX_MODEL_LEN=34000 ;;
+            *experiment2_long*)        MAX_MODEL_LEN=34000 ;;
+            *experiment2_summarization*) MAX_MODEL_LEN=18000 ;;
+            *)                         MAX_MODEL_LEN=34000 ;;
+        esac
+    fi
+    EXTRA_ARGS="${EXTRA_ARGS} --max_model_len ${MAX_MODEL_LEN}"
+    echo "PagedAttention: max_model_len=${MAX_MODEL_LEN}"
 fi
 
 python scripts/run_experiment1.py \

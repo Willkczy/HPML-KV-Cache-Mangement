@@ -20,10 +20,11 @@ fi
 
 echo "=== Loading modules ==="
 module purge
+module load anaconda/2023.09   # provides Python 3.11 — required for vllm
 module load cuda/12.3
 
 echo "=== Creating virtual environment in scratch ==="
-python3 -m venv "${VENV}"
+python -m venv "${VENV}"       # uses Python 3.11 from anaconda
 source "${VENV}/bin/activate"
 
 echo "=== Installing dependencies ==="

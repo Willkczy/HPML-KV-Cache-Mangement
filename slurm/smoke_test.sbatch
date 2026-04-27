@@ -35,6 +35,9 @@ EXTRA_ARGS=""
 if [ "${METHOD}" = "streaming_llm" ]; then
     EXTRA_ARGS="--start_size 4 --recent_size 256"
 fi
+if [ "${METHOD}" = "streaming_llm_vllm" ]; then
+    EXTRA_ARGS="--start_size 4 --recent_size 1024 --max_model_len 32768 --gpu_memory_utilization 0.90 --block_size 16"
+fi
 
 python scripts/run_experiment1.py \
     --config configs/experiment1_short.yaml \

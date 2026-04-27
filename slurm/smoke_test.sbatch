@@ -25,7 +25,7 @@ REPO="${SCRATCH}/HPML-KV-Cache-Mangement"
 module purge
 module load cuda/12.3
 
-source "${SCRATCH}/.venv/bin/activate"
+source "${HOME}/.venv/bin/activate"
 cd "${REPO}"
 
 echo "=== Smoke test: ${METHOD} — MMLU (3 samples) ==="

@@ -6,7 +6,7 @@ set -e
 
 UNI="${USER}"
 SCRATCH="/insomnia001/depts/edu/users/${UNI}"
-VENV="${SCRATCH}/.venv"
+VENV="${HOME}/.venv"
 
 echo "=== Creating scratch directories ==="
 mkdir -p "${SCRATCH}/models"
@@ -28,16 +28,10 @@ python -m venv "${VENV}"       # uses Python 3.11 from anaconda
 source "${VENV}/bin/activate"
 
 echo "=== Installing dependencies ==="
-pip install --upgrade pip
-pip install torch==2.3.0 --index-url https://download.pytorch.org/whl/cu121
-# Install vllm only if on feat/paged-attention or explicitly requested
-BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "")
-if echo "${BRANCH}" | grep -qiE "paged.attention|dev" || [ "${INSTALL_VLLM}" = "1" ]; then
-    echo "=== Installing vllm (branch: ${BRANCH}) ==="
-    pip install -r requirements.txt
-else
-    grep -v "^vllm" requirements.txt | pip install -r /dev/stdin
-fi
+pip install --upgrade pip --no-cache-dir
+pip install "torch>=2.4.0" --index-url https://download.pytorch.org/whl/cu121 --no-cache-dir
+# Install all requirements (vllm==0.8.5 pinned in requirements.txt)
+pip install -r requirements.txt --no-cache-dir
 
 echo ""
 echo "=== Setup complete ==="

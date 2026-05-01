@@ -13,7 +13,7 @@ MODEL_DIR="${SCRATCH}/models/qwen2.5-7b"
 
 module purge
 
-source "${SCRATCH}/.venv/bin/activate"
+source "${HOME}/.venv/bin/activate"
 
 echo "Downloading Qwen2.5-7B to ${MODEL_DIR} ..."
 huggingface-cli download Qwen/Qwen2.5-7B \

@@ -12,12 +12,14 @@ from methods.full_cache import FullCacheMethod
 from methods.h2o import H2OMethod
 from methods.streaming_llm import StreamingLLMMethod
 from methods.paged_attention import PagedAttentionMethod
+from methods.streaming_llm_vllm import StreamingLLMvLLMMethod
 
 METHODS: dict[str, type[BaseMethod]] = {
     "full_cache": FullCacheMethod,
     "h2o": H2OMethod,
     "streaming_llm": StreamingLLMMethod,
     "paged_attention": PagedAttentionMethod,
+    "streaming_llm_vllm": StreamingLLMvLLMMethod,
 }
 
 __all__ = ["BaseMethod", "MethodOutput", "METHODS"]

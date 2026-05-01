@@ -25,7 +25,9 @@ REPO="${SCRATCH}/HPML-KV-Cache-Mangement"
 module purge
 module load cuda/12.3
 
-source "${SCRATCH}/.venv/bin/activate"
+unset CUDA_VISIBLE_DEVICES
+
+source "${HOME}/.venv/bin/activate"
 cd "${REPO}"
 
 echo "=== Smoke test: ${METHOD} — MMLU (3 samples) ==="
@@ -34,6 +36,9 @@ echo "Node: $(hostname), GPU: $(nvidia-smi --query-gpu=name --format=csv,noheade
 EXTRA_ARGS=""
 if [ "${METHOD}" = "streaming_llm" ]; then
     EXTRA_ARGS="--start_size 4 --recent_size 256"
+fi
+if [ "${METHOD}" = "streaming_llm_vllm" ]; then
+    EXTRA_ARGS="--start_size 4 --recent_size 1024 --max_model_len 32768 --gpu_memory_utilization 0.90 --block_size 16"
 fi
 if [ "${METHOD}" = "paged_attention" ]; then
     export VLLM_USE_V1=${VLLM_USE_V1:-0}

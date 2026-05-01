@@ -151,8 +151,9 @@ class PagedAttentionMethod(BaseMethod):
         decode_latency_ms = max(total_time_ms - ttft_ms, 0.0)
 
         # --- KV memory ---
-        # Report decode-only peak KV memory to match experiment requirement.
-        # We still keep prefill/total in metadata for deeper analysis.
+        # Report total KV (prompt + generated) to match full_cache baseline.
+        # Both full_cache and paged_attention are uncompressed full-cache methods
+        # and should report the same KV footprint for the same input.
         total_tokens = prompt_tokens + generated_tokens
         total_kv_mb = self._estimate_kv_memory_mb(total_tokens)
         decode_peak_kv_mb = max(total_kv_mb - prefill_kv_mb, 0.0)
@@ -168,16 +169,15 @@ class PagedAttentionMethod(BaseMethod):
             ttft_ms=ttft_ms,
             total_time_ms=total_time_ms,
             decode_latency_ms=decode_latency_ms,
-            peak_kv_memory_mb=decode_peak_kv_mb,
+            peak_kv_memory_mb=total_kv_mb,
             metadata={
                 "method": "paged_attention",
                 "backend": "vllm",
                 "block_size": self.block_size,
                 "num_blocks_used": total_blocks,
                 "decode_blocks_used": decode_blocks,
-                "estimated_kv_mb": round(total_kv_mb, 2),
+                "prefill_kv_memory_mb": round(prefill_kv_mb, 3),
                 "decode_peak_kv_memory_mb": round(decode_peak_kv_mb, 3),
-                "prefill_peak_kv_memory_mb": round(prefill_kv_mb, 3),
                 "engine_memory_mb": round(self.engine_memory_mb, 2),
             },
         )

@@ -33,21 +33,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.cache_utils import DynamicCache
 
-from methods.base import BaseMethod, MethodOutput
-
-
-# ── KV memory helper ────────────────────────────────────────────────────────
-
-def _kv_memory_mb(cache) -> float:
-    """Sum of bytes used by all K and V tensors, converted to MB."""
-    if cache is None:
-        return 0.0
-    total = 0
-    for layer in cache:
-        k, v = layer[0], layer[1]   # layer is (k, v, ...) — may have extra fields
-        total += k.nelement() * k.element_size()
-        total += v.nelement() * v.element_size()
-    return total / (1024 ** 2)
+from methods.base import BaseMethod, MethodOutput, kv_memory_mb as _kv_memory_mb
 
 
 # ── Core eviction logic ─────────────────────────────────────────────────────
@@ -165,6 +151,7 @@ class H2OMethod(BaseMethod):
 
         with torch.no_grad():
             # ── Prefill ──────────────────────────────────────────────────────
+            torch.cuda.synchronize()
             t0 = time.perf_counter()
 
             outputs = self.model(
@@ -174,6 +161,7 @@ class H2OMethod(BaseMethod):
                 use_cache=True,
             )
 
+            torch.cuda.synchronize()
             t_first_token = time.perf_counter()
             ttft_ms = (t_first_token - t0) * 1000.0
 

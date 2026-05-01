@@ -48,9 +48,10 @@ class PagedAttentionMethod(BaseMethod):
             gpu_memory_utilization=gpu_memory_utilization,
             max_model_len=max_model_len,
             block_size=block_size,
-            dtype="auto",
+            dtype="float16",
             # ── Disable implicit optimizations for fair benchmarking ──
             enforce_eager=kwargs.get("enforce_eager", True),
+            enable_prefix_caching=False,
         )
 
         self.engine_memory_mb = (

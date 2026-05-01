@@ -48,18 +48,21 @@ if [ "${METHOD}" = "streaming_llm" ]; then
 fi
 
 if [ "${METHOD}" = "paged_attention" ]; then
+    # Lock to vLLM v0 for reproducible benchmarking (experiments 3, 4, 5)
+    # Override with VLLM_USE_V1=1 externally for experiment 6
+    export VLLM_USE_V1=${VLLM_USE_V1:-0}
     # Auto-set max_model_len based on config if not overridden
     if [ -z "${MAX_MODEL_LEN}" ]; then
         case "${CONFIG}" in
-            *experiment1_short*)       MAX_MODEL_LEN=4096  ;;
-            *experiment2_long_explain*) MAX_MODEL_LEN=34000 ;;
-            *experiment2_long*)        MAX_MODEL_LEN=34000 ;;
+            *experiment1_short*)         MAX_MODEL_LEN=4096  ;;
+            *experiment2_long_explain*)  MAX_MODEL_LEN=34000 ;;
+            *experiment2_long*)          MAX_MODEL_LEN=34000 ;;
             *experiment2_summarization*) MAX_MODEL_LEN=18000 ;;
-            *)                         MAX_MODEL_LEN=34000 ;;
+            *)                           MAX_MODEL_LEN=34000 ;;
         esac
     fi
     EXTRA_ARGS="${EXTRA_ARGS} --max_model_len ${MAX_MODEL_LEN}"
-    echo "PagedAttention: max_model_len=${MAX_MODEL_LEN}"
+    echo "PagedAttention: max_model_len=${MAX_MODEL_LEN}, VLLM_USE_V1=${VLLM_USE_V1}"
 fi
 
 python scripts/run_experiment1.py \

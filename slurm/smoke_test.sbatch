@@ -35,6 +35,11 @@ EXTRA_ARGS=""
 if [ "${METHOD}" = "streaming_llm" ]; then
     EXTRA_ARGS="--start_size 4 --recent_size 256"
 fi
+if [ "${METHOD}" = "paged_attention" ]; then
+    export VLLM_USE_V1=${VLLM_USE_V1:-0}
+    EXTRA_ARGS="--max_model_len 4096"
+    echo "PagedAttention: VLLM_USE_V1=${VLLM_USE_V1}"
+fi
 
 python scripts/run_experiment1.py \
     --config configs/experiment1_short.yaml \

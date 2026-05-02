@@ -398,9 +398,6 @@ class StreamingLLMvLLMMethod(BaseMethod):
         # Patches must be applied before LLM() creates engine instances.
         _apply_vllm_patches(self.policy)
 
-        torch.cuda.reset_peak_memory_stats(0)
-        mem_before = torch.cuda.memory_allocated(0)
-
         self.llm = LLM(
             model=model_name,
             trust_remote_code=True,
@@ -413,9 +410,7 @@ class StreamingLLMvLLMMethod(BaseMethod):
             enable_prefix_caching=False,
         )
 
-        self.engine_memory_mb = (
-            torch.cuda.memory_allocated(0) - mem_before
-        ) / (1024 ** 2)
+        self.engine_memory_mb = 0.0
         self.tokenizer = self.llm.get_tokenizer()
 
         window_tokens = self.policy.min_blocks * self.block_size

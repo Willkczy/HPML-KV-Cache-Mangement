@@ -74,7 +74,7 @@ class PagedAttentionMethod(BaseMethod):
         gives the true per-request KV footprint for apples-to-apples
         comparison with methods that allocate KV on the fly.
         """
-        model_config = self.llm.model_config
+        model_config = getattr(self.llm, "model_config", self.llm.llm_engine.model_config)
         hf_config = model_config.hf_config
 
         num_layers = hf_config.num_hidden_layers

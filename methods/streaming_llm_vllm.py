@@ -407,7 +407,7 @@ class StreamingLLMvLLMMethod(BaseMethod):
             gpu_memory_utilization=kwargs.get("gpu_memory_utilization", 0.90),
             max_model_len=kwargs.get("max_model_len", 16384),
             block_size=self.block_size,
-            dtype="auto",
+            dtype="float16",
             enforce_eager=kwargs.get("enforce_eager", True),
             # Disable prefix caching: shared blocks complicate ref_count tracking.
             enable_prefix_caching=False,

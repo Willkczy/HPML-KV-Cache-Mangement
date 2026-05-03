@@ -192,6 +192,7 @@ class H2OMethod(BaseMethod):
 
         with torch.no_grad():
             # ── Prefill ──────────────────────────────────────────────────────
+            torch.cuda.synchronize()
             t0 = time.perf_counter()
 
             # Prefill: no output_attentions — avoids materialising the
@@ -204,6 +205,7 @@ class H2OMethod(BaseMethod):
                 use_cache=True,
             )
 
+            torch.cuda.synchronize()
             t_first_token = time.perf_counter()
             ttft_ms = (t_first_token - t0) * 1000.0
 
@@ -219,6 +221,7 @@ class H2OMethod(BaseMethod):
             peak_kv_mb = prefill_kv_mb
 
             if next_token.item() == eos_id or max_new_tokens <= 1:
+                torch.cuda.synchronize()
                 t_end = time.perf_counter()
                 return self._make_output(
                     generated_ids, prompt_tokens,
@@ -270,6 +273,7 @@ class H2OMethod(BaseMethod):
                 if next_token.item() == eos_id:
                     break
 
+        torch.cuda.synchronize()
         t_end = time.perf_counter()
         return self._make_output(
             generated_ids, prompt_tokens,

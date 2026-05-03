@@ -152,6 +152,13 @@ class H2OMethod(BaseMethod):
         )
         self.model.eval()
 
+        # Warm up CUDA to eliminate JIT/initialization overhead from TTFT timing
+        _dummy = torch.ones(1, 1, dtype=torch.long, device=self.device)
+        with torch.no_grad():
+            self.model(_dummy, use_cache=False)
+        torch.cuda.synchronize()
+        del _dummy
+
         # Patch each attention layer so we can toggle eager on/off per call.
         # During decode we temporarily set _attn_implementation = "eager" on
         # the model config, which HuggingFace respects at forward time.

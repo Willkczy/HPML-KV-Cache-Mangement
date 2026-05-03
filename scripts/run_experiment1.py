@@ -46,11 +46,14 @@ def parse_args():
                         help="Which method to run.")
     parser.add_argument("--smoke_test", action="store_true",
                         help="Run only the first 3 samples for quick validation.")
-    # StreamingLLM-specific (ignored by other methods via **kwargs)
+    # StreamingLLM / H2O window sizes (ignored by other methods via **kwargs)
     parser.add_argument("--start_size", type=int, default=4,
                         help="StreamingLLM: number of attention sink tokens.")
     parser.add_argument("--recent_size", type=int, default=256,
-                        help="StreamingLLM: size of the recent token window.")
+                        help="StreamingLLM/H2O: size of the recent token window.")
+    # H2O-specific (ignored by other methods via **kwargs)
+    parser.add_argument("--hh_size", type=int, default=64,
+                        help="H2O: number of heavy-hitter tokens to keep.")
     # vLLM-specific (ignored by HF methods via **kwargs)
     parser.add_argument("--block_size", type=int, default=16,
                         help="vLLM: tokens per KV block.")
@@ -163,6 +166,7 @@ def main():
     setup_kwargs = dict(
         start_size=args.start_size,
         recent_size=args.recent_size,
+        hh_size=args.hh_size,
         block_size=args.block_size,
         gpu_memory_utilization=args.gpu_memory_utilization,
     )

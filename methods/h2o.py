@@ -307,11 +307,10 @@ class H2OMethod(BaseMethod):
             ttft_ms=ttft_ms,
             total_time_ms=total_ms,
             decode_latency_ms=total_ms - ttft_ms,
-            peak_kv_memory_mb=peak_kv_mb,
+            peak_kv_memory_mb=decode_peak_kv_mb,
             metadata={
                 "hh_size": hh_size,
                 "recent_size": recent_size,
-                "decode_peak_kv_memory_mb": decode_peak_kv_mb,
                 "prefill_peak_kv_memory_mb": prefill_kv_mb,
             },
         )

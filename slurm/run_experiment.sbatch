@@ -48,13 +48,13 @@ fi
 EXTRA_ARGS=""
 if [ "${METHOD}" = "streaming_llm" ]; then
     START_SIZE=${START_SIZE:-4}
-    RECENT_SIZE=${RECENT_SIZE:-1024}
+    RECENT_SIZE=${RECENT_SIZE:-64}
     EXTRA_ARGS="--start_size ${START_SIZE} --recent_size ${RECENT_SIZE}"
 fi
 
 if [ "${METHOD}" = "streaming_llm_vllm" ]; then
     START_SIZE=${START_SIZE:-4}
-    RECENT_SIZE=${RECENT_SIZE:-1024}
+    RECENT_SIZE=${RECENT_SIZE:-64}
     MAX_MODEL_LEN=${MAX_MODEL_LEN:-32768}
     GPU_MEMORY_UTILIZATION=${GPU_MEMORY_UTILIZATION:-0.90}
     BLOCK_SIZE=${BLOCK_SIZE:-16}

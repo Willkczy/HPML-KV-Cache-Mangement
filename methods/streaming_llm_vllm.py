@@ -108,6 +108,14 @@ _ACTIVE_POLICY: Optional[SinkRecentPolicy] = None
 # cannot set attributes on it directly.
 _effective_kv_lens: dict = {}
 
+# Deferred block free queue — blocks are queued here instead of freed
+# immediately during trim_request_blocks.  They are flushed at the START of
+# the next Scheduler.schedule() call, after the current forward pass is
+# guaranteed complete.  This prevents the race condition where a freed block
+# is immediately reallocated to another concurrent request while the GPU
+# kernel is still reading from that physical address.
+_deferred_frees: list = []  # list of (allocator, block)
+
 
 def _apply_vllm_patches(policy: SinkRecentPolicy) -> None:
     """Monkey-patch vLLM internals to implement sink+recent KV retention.
@@ -134,6 +142,7 @@ def _apply_vllm_patches(policy: SinkRecentPolicy) -> None:
     _patch_block_manager(policy)
     _patch_model_runner()
     _patch_scheduler(policy)
+    _patch_schedule_flush()
 
     _ACTIVE_POLICY = policy
     _PATCHES_APPLIED = True
@@ -197,18 +206,18 @@ def _patch_block_manager(policy: SinkRecentPolicy) -> None:
         recent = blocks[recent_start:]
         middle = blocks[sink_end:recent_start]
 
-        # Free middle blocks. The allocator handles ref_count internally.
-        # Deduplicate by physical_block_id to avoid double-freeing.
+        # Defer freeing middle blocks until after the current forward pass.
+        # Immediate freeing in concurrent mode causes CUDA illegal memory
+        # access: freed blocks are reallocated to other requests while the
+        # GPU kernel still holds their physical addresses for this request.
+        # Patch 4 (schedule flush) drains _deferred_frees between passes.
         freed_ids: set = set()
         for block in middle:
             bid = getattr(block, "physical_block_id", id(block))
             if bid in freed_ids:
                 continue
             freed_ids.add(bid)
-            try:
-                block_table._allocator.free(block)
-            except Exception:
-                pass
+            _deferred_frees.append((block_table._allocator, block))
 
         retained = sink + recent
         block_table.update(retained)  # replaces _blocks list in-place
@@ -323,6 +332,43 @@ def _patch_scheduler(policy: SinkRecentPolicy) -> None:
         return result
 
     Scheduler._append_slots = patched_append_slots
+
+
+# ── Patch 4: Scheduler.schedule flush ────────────────────────────────────────
+
+def _patch_schedule_flush() -> None:
+    """Flush deferred block frees at the start of each schedule() call.
+
+    schedule() runs BETWEEN forward passes, so by the time it is called the
+    previous GPU kernel has finished and no physical block address is still
+    live in any active kernel.  Freeing here is safe regardless of how many
+    concurrent requests are in-flight.
+    """
+    try:
+        from vllm.core.scheduler import Scheduler
+    except ImportError:
+        print("[streaming_llm_vllm] WARNING: Could not patch Scheduler.schedule — deferred frees disabled.")
+        return
+
+    original_schedule = Scheduler.schedule
+
+    def patched_schedule(sched_self, *args, **kwargs):
+        # Flush all deferred frees before the next round of scheduling.
+        if _deferred_frees:
+            freed_ids: set = set()
+            for allocator, block in _deferred_frees:
+                bid = getattr(block, "physical_block_id", id(block))
+                if bid in freed_ids:
+                    continue
+                freed_ids.add(bid)
+                try:
+                    allocator.free(block)
+                except Exception:
+                    pass
+            _deferred_frees.clear()
+        return original_schedule(sched_self, *args, **kwargs)
+
+    Scheduler.schedule = patched_schedule
 
 
 # ── Method class ──────────────────────────────────────────────────────────────

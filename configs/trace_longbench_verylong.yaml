@@ -1,0 +1,27 @@
+# Source config for trace generation — LongBench v2 very long context
+# Covers the very_long bucket (16k-32k tokens)
+experiment:
+  name: "trace_longbench_verylong"
+  description: "LongBench v2 with 16k-32k token range for realistic workload trace generation"
+
+model:
+  name: "Qwen/Qwen2.5-7B"
+  local_path: "~/models/qwen2.5-7b"
+  device: "cuda"
+
+data:
+  dataset: "longbench"
+  domains: []                           # all domains
+  num_samples_per_domain: -1            # load all, trace generator filters
+  difficulty: null
+  prompt_style: "short"
+  token_range:
+    min: 16000
+    max: 32000
+
+generation:
+  max_new_tokens: 512
+  temperature: 0.0
+
+output:
+  results_dir: "results/trace_gen"

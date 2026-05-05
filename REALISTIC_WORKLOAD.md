@@ -4,6 +4,9 @@ This workload should be run from a branch based on `feat/fairness-fixes`.
 The trace generator and mixed runner are used here, while method
 implementations and KV-memory semantics stay aligned with the fairness branch.
 
+For the handoff notes and the plan for a true vLLM continuous-batching serving
+benchmark, see `docs/REALISTIC_SERVING_HANDOFF.md`.
+
 ## 1. Generate The Shared Trace
 
 Generate once and reuse the same JSONL file for every method:

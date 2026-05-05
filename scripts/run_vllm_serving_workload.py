@@ -215,7 +215,8 @@ async def monitor_blocks(engine: AsyncLLMEngine, interval: float = 0.5) -> list[
     samples = []
     try:
         # vLLM v0 path: engine.engine.scheduler.block_manager
-        scheduler = engine.engine.scheduler
+        sched = engine.engine.scheduler
+        scheduler = sched[0] if isinstance(sched, list) else sched
         total = scheduler.block_manager.num_total_gpu_blocks
         while True:
             free = scheduler.block_manager.get_num_free_gpu_blocks()

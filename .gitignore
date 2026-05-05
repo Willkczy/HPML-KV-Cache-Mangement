@@ -8,3 +8,4 @@ results/**
 *.json.gz
 wandb/
 .DS_Store
+slurm-*.out

@@ -208,25 +208,60 @@ async def run_request(engine: AsyncLLMEngine, req: dict, experiment_start: float
         }
 
 
+# ── Block utilization monitor ──────────────────────────────────────────────────
+
+async def monitor_blocks(engine: AsyncLLMEngine, interval: float = 0.5) -> list[dict]:
+    """Poll KV block utilization every interval seconds until cancelled."""
+    samples = []
+    try:
+        # vLLM v0 path: engine.engine.scheduler.block_manager
+        scheduler = engine.engine.scheduler
+        total = scheduler.block_manager.num_total_gpu_blocks
+        while True:
+            free = scheduler.block_manager.get_num_free_gpu_blocks()
+            samples.append({
+                "t": round(time.perf_counter(), 3),
+                "utilization": round(1.0 - free / total, 4),
+                "used_blocks": total - free,
+                "total_blocks": total,
+            })
+            await asyncio.sleep(interval)
+    except asyncio.CancelledError:
+        pass
+    except Exception as e:
+        print(f"[monitor] Block utilization unavailable: {e}")
+    return samples
+
+
 # ── Async serving runner ───────────────────────────────────────────────────────
 
-async def run_serving(engine: AsyncLLMEngine, trace: list[dict]) -> tuple[list[dict], float]:
-    """Submit all requests concurrently and collect results."""
+async def run_serving(engine: AsyncLLMEngine, trace: list[dict]) -> tuple[list[dict], float, list[dict]]:
+    """Submit all requests concurrently and collect results + block utilization."""
     experiment_start = time.perf_counter()
-    tasks = [
+
+    # Start block utilization monitor as background task
+    monitor_task = asyncio.create_task(monitor_blocks(engine, interval=0.5))
+
+    request_tasks = [
         asyncio.create_task(run_request(engine, req, experiment_start))
         for req in trace
     ]
-    records = await asyncio.gather(*tasks)
+    records = await asyncio.gather(*request_tasks)
+
+    # Stop monitor after all requests finish
+    monitor_task.cancel()
+    block_samples = await monitor_task
+
     total_wall_s = time.perf_counter() - experiment_start
-    return list(records), total_wall_s
+    return list(records), total_wall_s, block_samples
 
 
 # ── Summary computation ────────────────────────────────────────────────────────
 
 def compute_summary(method: str, records: list[dict], trace: list[dict],
                     arrival_rate: float, total_wall_s: float,
-                    config_path: str, model_name: str) -> dict:
+                    config_path: str, model_name: str,
+                    block_samples: list[dict] = None) -> dict:
     valid = [r for r in records if not r.get("oom")]
     n_oom = len(records) - len(valid)
 
@@ -272,6 +307,17 @@ def compute_summary(method: str, records: list[dict], trace: list[dict],
     all_mcq = [r for r in valid if r["dataset"] in ("mmlu", "longbench")]
     all_rouge = [r for r in valid if r["dataset"] == "govreport"]
 
+    # Block utilization metrics (KV memory pressure)
+    block_util = {}
+    if block_samples:
+        util_vals = [s["utilization"] for s in block_samples]
+        block_util = {
+            "peak_block_utilization": round(max(util_vals), 4),
+            "avg_block_utilization": round(sum(util_vals) / len(util_vals), 4),
+            "p95_block_utilization": round(percentile(util_vals, 95), 4),
+            "n_block_samples": len(block_samples),
+        }
+
     summary = {
         "method": method,
         "config": config_path,
@@ -290,6 +336,7 @@ def compute_summary(method: str, records: list[dict], trace: list[dict],
         "p50_e2e_latency_ms": round(percentile(e2e_vals, 50), 3),
         "p95_e2e_latency_ms": round(percentile(e2e_vals, 95), 3),
         "p99_e2e_latency_ms": round(percentile(e2e_vals, 99), 3),
+        **block_util,
         "per_bucket": per_bucket,
     }
     if all_mcq:
@@ -372,7 +419,7 @@ def main():
         print(f"\n[serving] === Arrival rate: {rate:.2f} req/s ===")
         trace = scale_arrivals(full_trace, original_rate, rate)
 
-        records, wall_s = asyncio.run(run_serving(engine, trace))
+        records, wall_s, block_samples = asyncio.run(run_serving(engine, trace))
 
         summary = compute_summary(
             method=args.method,
@@ -382,6 +429,7 @@ def main():
             total_wall_s=wall_s,
             config_path=args.config,
             model_name=model_name,
+            block_samples=block_samples,
         )
 
         # Print summary
@@ -398,6 +446,9 @@ def main():
         print(f"  P50 E2E:        {summary['p50_e2e_latency_ms']:.1f} ms")
         print(f"  P95 E2E:        {summary['p95_e2e_latency_ms']:.1f} ms")
         print(f"  P99 E2E:        {summary['p99_e2e_latency_ms']:.1f} ms")
+        if "peak_block_utilization" in summary:
+            print(f"  Peak KV util:   {summary['peak_block_utilization']:.1%}")
+            print(f"  Avg KV util:    {summary['avg_block_utilization']:.1%}")
         if "overall_accuracy" in summary:
             print(f"  MCQ accuracy:   {summary['overall_accuracy']:.1%}")
         if "overall_avg_rouge_l" in summary:

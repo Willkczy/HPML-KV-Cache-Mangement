@@ -54,7 +54,10 @@ Runner/infrastructure:
 Results/docs:
 
 - `results/experiment_mixed_workload/*.json`
-- `MIXED_WORKLOAD_RESULTS.md` if generated/committed from Insomnia
+- `MIXED_WORKLOAD_RESULTS.md`
+
+`MIXED_WORKLOAD_RESULTS.md` is the easiest human-readable entry point for the
+committed benchmark numbers. The JSON files remain the source of truth.
 
 ## Current Workload Design
 
@@ -169,6 +172,29 @@ Smoke tests:
 
 Smoke files are sanity checks and usually should not be used in final tables.
 The JSON summaries are the source of truth for exact numbers.
+
+Committed full-run result files:
+
+| Method | Requests | OOM | Avg KV MB | MCQ Acc | ROUGE-L | Notes |
+|---|---:|---:|---:|---:|---:|---|
+| `full_cache` | 500 | 0 | 200.347 | 0.5636 | 0.1945 | HF full-cache baseline |
+| `paged_attention` | 500 | 0 | 200.402 | 0.5673 | 0.1948 | vLLM full-cache baseline |
+| `streaming_llm` | 500 | 0 | 39.884 | 0.5600 | 0.1414 | HF sink+recent eviction |
+| `streaming_llm_vllm` | 500 | 0 | 40.183 | 0.5273 | 0.0718 | vLLM sink+recent eviction |
+
+Committed 50-request trial result files:
+
+| Method | Requests | OOM | Avg KV MB | MCQ Acc | ROUGE-L | Notes |
+|---|---:|---:|---:|---:|---:|---|
+| `full_cache` | 50 | 0 | 213.668 | 0.6129 | 0.1549 | short sanity trial |
+| `h2o` | 50 | 0 | 7.000 | 0.6129 | 0.0000 | 128-token H2O budget collapses summarization |
+| `paged_attention` | 50 | 0 | 213.300 | 0.6129 | 0.1554 | matches full-cache quality in trial |
+| `streaming_llm` | 50 | 0 | 38.000 | 0.6129 | 0.1308 | moderate summarization loss |
+| `streaming_llm_vllm` | 50 | 0 | 38.259 | 0.5806 | 0.0558 | large summarization loss in trial |
+
+The large p95/p99 e2e latency values in `MIXED_WORKLOAD_RESULTS.md` include
+simulated queue wait at `arrival_rate=2.0`. They should be interpreted as
+sequential-replay overload behavior, not as true vLLM serving latency.
 
 ## How To Reproduce Current Mixed Replay
 
@@ -408,4 +434,3 @@ StreamingLLM-vLLM should become much clearer.
 8. Add Slurm script `slurm/run_vllm_serving_workload.sbatch`.
 9. Run smoke tests at low request counts.
 10. Sweep arrival rates for final comparison.
-

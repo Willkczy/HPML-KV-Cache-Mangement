@@ -214,8 +214,14 @@ async def monitor_blocks(engine: AsyncLLMEngine, interval: float = 0.5) -> list[
     """Poll KV block utilization every interval seconds until cancelled."""
     samples = []
     try:
-        # vLLM v0 path: engine.engine.scheduler.block_manager
-        sched = engine.engine.scheduler
+        # Try multiple attribute paths: v0 uses .engine, v1 uses .llm_engine
+        inner = (getattr(engine, "engine", None) or
+                 getattr(engine, "llm_engine", None))
+        if inner is None:
+            raise AttributeError(f"Cannot find inner engine on {type(engine).__name__}")
+        sched = getattr(inner, "scheduler", None)
+        if sched is None:
+            raise AttributeError("Cannot find scheduler on inner engine")
         scheduler = sched[0] if isinstance(sched, list) else sched
         total = scheduler.block_manager.num_total_gpu_blocks
         while True:
@@ -411,16 +417,16 @@ def main():
     print(f"[serving] Model:  {model_name}")
     print(f"[serving] Trace:  {len(full_trace)} requests from {trace_path}")
 
-    # Build engine once (shared across arrival rate sweep)
-    engine = build_engine(args.method, model_name, args)
-
     arrival_rates = args.arrival_rates or [original_rate]
 
     for rate in arrival_rates:
         print(f"\n[serving] === Arrival rate: {rate:.2f} req/s ===")
         trace = scale_arrivals(full_trace, original_rate, rate)
 
+        # Fresh engine per rate for independent results
+        engine = build_engine(args.method, model_name, args)
         records, wall_s, block_samples = asyncio.run(run_serving(engine, trace))
+        del engine
 
         summary = compute_summary(
             method=args.method,

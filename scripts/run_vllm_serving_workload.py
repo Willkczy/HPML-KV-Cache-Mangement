@@ -463,8 +463,9 @@ def main():
         print(f"{'='*60}\n")
 
         # Save
+        engine_ver = "v1" if os.environ.get("VLLM_USE_V1", "0") == "1" else "v0"
         tag = "smoke" if args.smoke_test else f"rate{rate:.2f}"
-        out_path = results_dir / f"serving_{args.method}_{tag}.json"
+        out_path = results_dir / f"serving_{args.method}_{engine_ver}_{tag}.json"
         with open(out_path, "w") as f:
             json.dump({"summary": summary, "records": records}, f, indent=2)
         print(f"[serving] Results saved to {out_path}")

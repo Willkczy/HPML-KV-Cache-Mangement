@@ -46,6 +46,13 @@ if [ -z "${METHOD}" ] || [ -z "${CONFIG}" ]; then
 fi
 
 EXTRA_ARGS=""
+if [ "${METHOD}" = "h2o" ]; then
+    HH_SIZE=${HH_SIZE:-64}
+    RECENT_SIZE=${RECENT_SIZE:-64}
+    EXTRA_ARGS="--hh_size ${HH_SIZE} --recent_size ${RECENT_SIZE}"
+    echo "H2O: hh_size=${HH_SIZE}, recent_size=${RECENT_SIZE}, budget=$((HH_SIZE+RECENT_SIZE))"
+fi
+
 if [ "${METHOD}" = "streaming_llm" ]; then
     START_SIZE=${START_SIZE:-4}
     RECENT_SIZE=${RECENT_SIZE:-64}

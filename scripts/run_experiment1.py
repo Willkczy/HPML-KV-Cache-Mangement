@@ -296,9 +296,15 @@ def main():
     print(f"  Avg peak KV mem:   {summary['avg_peak_kv_memory_mb']:.1f} MB")
     print(f"{'='*60}\n")
 
-    # Save results
+    # Save results — include hyperparams in filename to avoid overwriting
     tag = "smoke" if args.smoke_test else "full"
-    out_path = results_dir / f"{args.method}_{tag}.json"
+    if args.method == "h2o":
+        hp_tag = f"_hh{args.hh_size}_r{args.recent_size}"
+    elif args.method in ("streaming_llm", "streaming_llm_vllm"):
+        hp_tag = f"_r{args.recent_size}"
+    else:
+        hp_tag = ""
+    out_path = results_dir / f"{args.method}{hp_tag}_{tag}.json"
     with open(out_path, "w") as f:
         json.dump({"summary": summary, "records": records}, f, indent=2)
     print(f"[runner] Results saved to {out_path}")

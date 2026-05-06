@@ -18,7 +18,8 @@
 #   ARRIVAL_RATES    — space-separated list (default: "0.5 1.0 2.0 4.0")
 #   MAX_MODEL_LEN    — default: 34000
 #   RECENT_SIZE      — StreamingLLM window size (default: 1024)
-#   VLLM_USE_V1      — set to 1 for experiment 5 (v1 engine)
+#   VLLM_USE_V1      — set to 1 for v1 engine (default: 0)
+#   ENFORCE_EAGER    — set to 1 to disable CUDA graphs (default: 0, graphs enabled)
 #
 # Example (experiment 4 — both v0):
 #   sbatch --export=ALL,METHOD=paged_attention slurm/run_vllm_serving_workload.sbatch
@@ -55,12 +56,17 @@ if [ "${VLLM_USE_V1}" = "1" ]; then
     V1_FLAG="--vllm_use_v1"
 fi
 
+EAGER_FLAG=""
+if [ "${ENFORCE_EAGER}" = "1" ]; then
+    EAGER_FLAG="--enforce_eager"
+fi
+
 python scripts/run_vllm_serving_workload.py \
     --config configs/experiment_mixed_workload.yaml \
     --method "${METHOD}" \
     --arrival_rates ${ARRIVAL_RATES} \
     --max_model_len ${MAX_MODEL_LEN} \
     --recent_size ${RECENT_SIZE} \
-    ${V1_FLAG}
+    ${V1_FLAG} ${EAGER_FLAG}
 
 echo "=== Done ==="

@@ -69,6 +69,8 @@ def parse_args():
     parser.add_argument("--smoke_test", action="store_true")
     parser.add_argument("--vllm_use_v1", action="store_true",
                         help="Use vLLM v1 engine (for experiment 5).")
+    parser.add_argument("--enforce_eager", action="store_true", default=False,
+                        help="Disable CUDA graphs. Use for HF-comparable benchmarks. Default: False (CUDA graphs on).")
     return parser.parse_args()
 
 
@@ -214,7 +216,8 @@ async def monitor_blocks(engine: AsyncLLMEngine, interval: float = 0.5) -> list[
     """Poll KV block utilization every interval seconds until cancelled."""
     samples = []
     try:
-        # Try multiple attribute paths: v0 uses .engine, v1 uses .llm_engine
+        # Try to access block manager via scheduler (works for v0)
+        # v0: engine.engine.scheduler  v1: engine.llm_engine or different path
         inner = (getattr(engine, "engine", None) or
                  getattr(engine, "llm_engine", None))
         if inner is None:
@@ -224,6 +227,8 @@ async def monitor_blocks(engine: AsyncLLMEngine, interval: float = 0.5) -> list[
             raise AttributeError("Cannot find scheduler on inner engine")
         scheduler = sched[0] if isinstance(sched, list) else sched
         total = scheduler.block_manager.num_total_gpu_blocks
+
+        # Block-level utilization (accurate, v0 only)
         while True:
             free = scheduler.block_manager.get_num_free_gpu_blocks()
             samples.append({
@@ -231,12 +236,39 @@ async def monitor_blocks(engine: AsyncLLMEngine, interval: float = 0.5) -> list[
                 "utilization": round(1.0 - free / total, 4),
                 "used_blocks": total - free,
                 "total_blocks": total,
+                "source": "block_manager",
             })
             await asyncio.sleep(interval)
     except asyncio.CancelledError:
         pass
     except Exception as e:
-        print(f"[monitor] Block utilization unavailable: {e}")
+        print(f"[monitor] Block manager unavailable ({e}), falling back to nvidia-smi GPU memory")
+        # Fallback: poll total GPU memory used via nvidia-smi
+        import subprocess
+        try:
+            # Get total GPU memory once for utilization calculation
+            total_mem_result = subprocess.run(
+                ['nvidia-smi', '--query-gpu=memory.total', '--format=csv,noheader,nounits'],
+                capture_output=True, text=True)
+            total_mb = float(total_mem_result.stdout.strip().split('\n')[0])
+
+            while True:
+                used_result = subprocess.run(
+                    ['nvidia-smi', '--query-gpu=memory.used', '--format=csv,noheader,nounits'],
+                    capture_output=True, text=True)
+                used_mb = float(used_result.stdout.strip().split('\n')[0])
+                samples.append({
+                    "t": round(time.perf_counter(), 3),
+                    "utilization": round(used_mb / total_mb, 4),
+                    "used_mb": used_mb,
+                    "total_mb": total_mb,
+                    "source": "nvidia-smi",
+                })
+                await asyncio.sleep(interval)
+        except asyncio.CancelledError:
+            pass
+        except Exception as e2:
+            print(f"[monitor] nvidia-smi fallback also failed: {e2}")
     return samples
 
 
@@ -380,10 +412,11 @@ def build_engine(method: str, model_name: str, args) -> AsyncLLMEngine:
         max_model_len=args.max_model_len,
         gpu_memory_utilization=args.gpu_memory_utilization,
         block_size=args.block_size,
-        enforce_eager=True,
+        enforce_eager=args.enforce_eager,
         enable_prefix_caching=False,
         disable_log_requests=True,
     )
+    print(f"[serving] enforce_eager={args.enforce_eager}, VLLM_USE_V1={os.environ.get('VLLM_USE_V1','0')}")
     return AsyncLLMEngine.from_engine_args(engine_args)
 
 

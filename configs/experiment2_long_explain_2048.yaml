@@ -1,0 +1,31 @@
+# Experiment 2 — Long Bucket (LongBench v2, explain reasoning, 2048 output tokens)
+# Same as experiment2_long_explain.yaml but with more generation budget.
+# Used to test whether full_cache accuracy improves with longer CoT.
+
+experiment:
+  name: "exp2_long_explain_2048"
+  description: "LongBench v2 explain reasoning with max_new_tokens=2048"
+
+model:
+  name: "Qwen/Qwen2.5-7B"
+  local_path: "~/models/qwen2.5-7b"
+  device: "cuda"
+
+data:
+  dataset: "longbench"
+  domains:
+    - "Single-Document QA"
+    - "Multi-Document QA"
+  num_samples_per_domain: 20
+  difficulty: null
+  prompt_style: "explain"
+  token_range:
+    min: 8000
+    max: 16000
+
+generation:
+  max_new_tokens: 2048
+  temperature: 0.0
+
+output:
+  results_dir: "results/exp2_long_explain_2048"

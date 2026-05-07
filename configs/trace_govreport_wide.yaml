@@ -1,0 +1,25 @@
+# Source config for trace generation — GovReport with wide token range
+# Covers medium (1k-4k) and long (4k-16k) buckets
+experiment:
+  name: "trace_govreport_wide"
+  description: "GovReport with permissive token range for realistic workload trace generation"
+
+model:
+  name: "Qwen/Qwen2.5-7B"
+  local_path: "~/models/qwen2.5-7b"
+  device: "cuda"
+
+data:
+  dataset: "govreport"
+  split: "test"
+  num_samples: -1                       # load all, trace generator filters
+  token_range:
+    min: 1000
+    max: 16000
+
+generation:
+  max_new_tokens: 512
+  temperature: 0.0
+
+output:
+  results_dir: "results/trace_gen"

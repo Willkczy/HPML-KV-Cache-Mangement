@@ -31,6 +31,13 @@ class FullCacheMethod(BaseMethod):
         )
         self.model.eval()
 
+        # Warm up CUDA to eliminate JIT/initialization overhead from TTFT timing
+        _dummy = torch.ones(1, 1, dtype=torch.long, device=self.device)
+        with torch.no_grad():
+            self.model(_dummy, use_cache=False)
+        torch.cuda.synchronize()
+        del _dummy
+
     def generate(self, prompt: str, max_new_tokens: int = 128, **kwargs) -> MethodOutput:
         """Run standard HF generation and collect timing + memory stats."""
         # ── Tokenize ──────────────────────────────────────────────

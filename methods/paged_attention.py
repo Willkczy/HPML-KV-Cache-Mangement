@@ -48,9 +48,10 @@ class PagedAttentionMethod(BaseMethod):
             gpu_memory_utilization=gpu_memory_utilization,
             max_model_len=max_model_len,
             block_size=block_size,
-            dtype="auto",
+            dtype="float16",
             # ── Disable implicit optimizations for fair benchmarking ──
             enforce_eager=kwargs.get("enforce_eager", True),
+            enable_prefix_caching=False,
         )
 
         self.engine_memory_mb = (
@@ -73,7 +74,7 @@ class PagedAttentionMethod(BaseMethod):
         gives the true per-request KV footprint for apples-to-apples
         comparison with methods that allocate KV on the fly.
         """
-        model_config = self.llm.model_config
+        model_config = getattr(self.llm, "model_config", self.llm.llm_engine.model_config)
         hf_config = model_config.hf_config
 
         num_layers = hf_config.num_hidden_layers
@@ -151,8 +152,9 @@ class PagedAttentionMethod(BaseMethod):
         decode_latency_ms = max(total_time_ms - ttft_ms, 0.0)
 
         # --- KV memory ---
-        # Report decode-only peak KV memory to match experiment requirement.
-        # We still keep prefill/total in metadata for deeper analysis.
+        # Report total KV (prompt + generated) to match full_cache baseline.
+        # Both full_cache and paged_attention are uncompressed full-cache methods
+        # and should report the same KV footprint for the same input.
         total_tokens = prompt_tokens + generated_tokens
         total_kv_mb = self._estimate_kv_memory_mb(total_tokens)
         decode_peak_kv_mb = max(total_kv_mb - prefill_kv_mb, 0.0)
@@ -168,16 +170,15 @@ class PagedAttentionMethod(BaseMethod):
             ttft_ms=ttft_ms,
             total_time_ms=total_time_ms,
             decode_latency_ms=decode_latency_ms,
-            peak_kv_memory_mb=decode_peak_kv_mb,
+            peak_kv_memory_mb=total_kv_mb,
             metadata={
                 "method": "paged_attention",
                 "backend": "vllm",
                 "block_size": self.block_size,
                 "num_blocks_used": total_blocks,
                 "decode_blocks_used": decode_blocks,
-                "estimated_kv_mb": round(total_kv_mb, 2),
+                "prefill_kv_memory_mb": round(prefill_kv_mb, 3),
                 "decode_peak_kv_memory_mb": round(decode_peak_kv_mb, 3),
-                "prefill_peak_kv_memory_mb": round(prefill_kv_mb, 3),
                 "engine_memory_mb": round(self.engine_memory_mb, 2),
             },
         )

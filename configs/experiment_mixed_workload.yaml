@@ -1,0 +1,54 @@
+# Experiment — Mixed Realistic Workload
+experiment:
+  name: "experiment_mixed_workload"
+  description: "Realistic serving workload with mixed short/medium/long/very-long requests"
+
+model:
+  name: "Qwen/Qwen2.5-7B"
+  local_path: "~/models/qwen2.5-7b"
+  device: "cuda"
+
+workload:
+  total_requests: 500
+  seed: 42
+  arrival_rate: 2.0        # requests per second (Poisson process); set null to disable
+
+  bucket_ratios:
+    short: 0.50
+    medium: 0.30
+    long: 0.15
+    very_long: 0.05
+
+  bucket_token_ranges:
+    short:
+      min: 0
+      max: 512
+    medium:
+      min: 1000
+      max: 4000
+    long:
+      min: 4000
+      max: 16000
+    very_long:
+      min: 16000
+      max: 32000
+
+  max_new_tokens_per_bucket:
+    short: 8
+    medium: 256
+    long: 512
+    very_long: 10   # LongBench short-answer MCQ prompt
+
+  source_configs:
+    mmlu: "configs/experiment1_short.yaml"
+    govreport: "configs/trace_govreport_wide.yaml"
+    longbench: "configs/trace_longbench_verylong.yaml"
+
+  trace_output_path: "results/traces/mixed_workload_trace.jsonl"
+
+generation:
+  max_new_tokens: 512                   # fallback, overridden per-bucket
+  temperature: 0.0
+
+output:
+  results_dir: "results/experiment_mixed_workload"

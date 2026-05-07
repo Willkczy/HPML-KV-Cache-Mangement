@@ -100,9 +100,59 @@ def plot_figure1():
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# Figure 1b (Slide 2) — Throughput comparison on short tasks
+# ══════════════════════════════════════════════════════════════════════════════
+
+def plot_figure1b():
+    methods = ["full_cache", "h2o", "streaming_llm", "paged_attention"]
+    thr_mmlu = [40.2, 29.9, 40.4, 43.5]   # tok/s on MMLU
+    thr_lb   = [4.6,  4.0,  5.1,  5.4]    # tok/s on LongBench short
+
+    x = np.arange(len(methods))
+    w = 0.35
+
+    fig, ax = plt.subplots(figsize=(9, 5))
+
+    bars1 = ax.bar(x - w/2, thr_mmlu, w, label="MMLU (128–512 tok)",
+                   color=[COLORS[m] for m in methods], edgecolor="white",
+                   linewidth=0.8, alpha=1.0)
+    bars2 = ax.bar(x + w/2, thr_lb, w, label="LongBench Short (8k–16k tok)",
+                   color=[COLORS[m] for m in methods], edgecolor="white",
+                   linewidth=0.8, alpha=0.5)
+
+    ax.set_ylabel("Throughput (tok/s)", fontsize=12)
+    ax.set_title("Short-Answer Tasks — Throughput Comparison\n"
+                 "Same accuracy across all methods", fontsize=11)
+    ax.set_xticks(x)
+    ax.set_xticklabels([LABELS[m] for m in methods], fontsize=11)
+
+    for bar, val in zip(bars1, thr_mmlu):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.3,
+                f"{val:.1f}", ha="center", va="bottom", fontsize=9)
+    for bar, val in zip(bars2, thr_lb):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.1,
+                f"{val:.1f}", ha="center", va="bottom", fontsize=9)
+
+    from matplotlib.patches import Patch
+    ax.legend(handles=[
+        Patch(facecolor="gray", alpha=1.0, label="MMLU (128–512 tok)"),
+        Patch(facecolor="gray", alpha=0.5, label="LongBench Short (8k–16k tok)"),
+    ], fontsize=9, loc="upper right")
+
+    ax.text(0.5, -0.14,
+            "H2O is ~25% slower due to unfused eager attention kernel required for eviction scoring",
+            transform=ax.transAxes, ha="center", va="top", fontsize=9, color="dimgray")
+
+    ax.grid(axis="y", linestyle="--", alpha=0.4)
+    plt.subplots_adjust(bottom=0.16)
+    plt.savefig(FIGURE_DIR / "figure1b_throughput_short_tasks.png", bbox_inches="tight")
+    plt.show()
+    print("Saved: figure1b_throughput_short_tasks.png")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # Figure 2 (Slide 3)
-# Left: LongBench Explain accuracy (shows H2O collapse)
-# Right: GovReport ROUGE-L (shows H2O=0, StreamingLLM recovery)
+# GovReport ROUGE-L (shows H2O=0, StreamingLLM recovery)
 # ══════════════════════════════════════════════════════════════════════════════
 
 def plot_figure2():
@@ -215,6 +265,7 @@ def plot_figure3():
 
 if __name__ == "__main__":
     plot_figure1()
+    plot_figure1b()
     plot_figure2()
     plot_figure3()
     print("\nAll figures saved.")

@@ -194,7 +194,7 @@ class H2OMethod(BaseMethod):
             outputs = self.model(
                 input_ids=input_ids,
                 past_key_values=None,
-                output_attentions=True,
+                output_attentions=False,
                 use_cache=True,
             )
 

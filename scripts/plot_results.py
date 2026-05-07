@@ -3,6 +3,10 @@
 import matplotlib.pyplot as plt
 import matplotlib.patches as mpatches
 import numpy as np
+from pathlib import Path
+
+FIGURE_DIR = Path(__file__).parent.parent / "figures"
+FIGURE_DIR.mkdir(exist_ok=True)
 
 # ── Color palette ──────────────────────────────────────────────────────────────
 COLORS = {
@@ -75,7 +79,7 @@ def plot_figure1():
 
     ax.grid(axis="y", linestyle="--", alpha=0.4)
     plt.tight_layout()
-    plt.savefig("figure1_kv_memory_lbshort.png", bbox_inches="tight")
+    plt.savefig(FIGURE_DIR / "figure1_kv_memory_lbshort.png", bbox_inches="tight")
     plt.show()
     print("Saved: figure1_kv_memory_lbshort.png")
 
@@ -135,7 +139,7 @@ def plot_figure2():
 
     plt.suptitle("Long-Context Generation: Where KV Eviction Breaks", fontsize=13)
     plt.tight_layout()
-    plt.savefig("figure2_longcontext_quality.png", bbox_inches="tight")
+    plt.savefig(FIGURE_DIR / "figure2_longcontext_quality.png", bbox_inches="tight")
     plt.show()
     print("Saved: figure2_longcontext_quality.png")
 
@@ -201,7 +205,7 @@ def plot_figure3():
                 color="green", fontsize=9)
 
     plt.tight_layout()
-    plt.savefig("figure3_govreport_frontier.png", bbox_inches="tight")
+    plt.savefig(FIGURE_DIR / "figure3_govreport_frontier.png", bbox_inches="tight")
     plt.show()
     print("Saved: figure3_govreport_frontier.png")
 

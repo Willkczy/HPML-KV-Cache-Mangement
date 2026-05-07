@@ -9,3 +9,4 @@ results/**
 wandb/
 .DS_Store
 slurm-*.out
+figures/

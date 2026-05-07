@@ -73,11 +73,11 @@ def plot_figure1():
         ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() * 1.4,
                 f"{val:.1f}", ha="center", va="bottom", fontsize=8)
 
-    # Highlight StreamingLLM
-    ax.annotate("6.4× ↓ (MMLU)\n198× ↓ (LB)",
-                xy=(2 + w/2, 3.7), xytext=(2.85, 25),
-                arrowprops=dict(arrowstyle="->", color="#2ca02c", lw=1.5),
-                color="#2ca02c", fontsize=9, ha="left", fontweight="bold")
+    # Key reduction note as caption
+    ax.text(0.5, -0.18,
+            "StreamingLLM: 6.4× less KV than Full Cache on MMLU  |  198× less on LongBench  |  Zero accuracy loss",
+            transform=ax.transAxes, ha="center", va="top", fontsize=9,
+            color="dimgray")
 
     # Legend: solid = MMLU, faded = LB
     from matplotlib.patches import Patch
@@ -93,7 +93,7 @@ def plot_figure1():
                       edgecolor="gray", alpha=0.8))
 
     ax.grid(axis="y", linestyle="--", alpha=0.4)
-    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.18)
     plt.savefig(FIGURE_DIR / "figure1_kv_memory_short_tasks.png", bbox_inches="tight")
     plt.show()
     print("Saved: figure1_kv_memory_short_tasks.png")
@@ -125,28 +125,23 @@ def plot_figure2():
                linewidth=1.5, alpha=0.7, label="Full Cache baseline (0.1859)")
 
     for bar, val in zip(bars, govreport_rouge):
-        label = f"{val:.4f}" if val > 0 else "0.0000\n(collapse)"
-        ax.text(bar.get_x() + bar.get_width()/2,
-                bar.get_height() + 0.004,
-                label, ha="center", va="bottom", fontsize=10,
+        label = f"{val:.4f}" if val > 0 else "0.0000"
+        ypos = bar.get_height() + 0.004 if val > 0 else 0.006
+        ax.text(bar.get_x() + bar.get_width()/2, ypos,
+                label, ha="center", va="bottom", fontsize=11,
                 fontweight="bold")
 
-    # H2O collapse annotation
-    ax.annotate("H2O collapses\nat all budgets\n(128–2048 tok)",
-                xy=(1, 0.0), xytext=(1.4, 0.06),
-                arrowprops=dict(arrowstyle="->", color=COLORS["h2o"], lw=1.5),
-                color=COLORS["h2o"], fontsize=9, ha="left")
-
-    # StreamingLLM recovery annotation
-    ax.annotate("−1.5% vs baseline\n(recent=4096, 2.3× less KV)",
-                xy=(2, 0.1832), xytext=(2.3, 0.215),
-                arrowprops=dict(arrowstyle="->", color=COLORS["streaming_llm"], lw=1.5),
-                color=COLORS["streaming_llm"], fontsize=9, ha="left")
+    # Key takeaways as figure caption (below x-axis)
+    ax.text(0.5, -0.18,
+            "H2O: ROUGE-L = 0 at all budgets tested (128–2048 tokens)\n"
+            "StreamingLLM (recent=4096): −1.5% vs baseline with 2.3× less KV memory",
+            transform=ax.transAxes, ha="center", va="top", fontsize=9,
+            color="dimgray")
 
     ax.legend(fontsize=9, loc="upper left")
     ax.grid(axis="y", linestyle="--", alpha=0.4)
     ax.tick_params(axis="x", labelsize=11)
-    plt.tight_layout()
+    plt.subplots_adjust(bottom=0.2)
     plt.savefig(FIGURE_DIR / "figure2_govreport_quality.png", bbox_inches="tight")
     plt.show()
     print("Saved: figure2_govreport_quality.png")

@@ -263,9 +263,106 @@ def plot_figure3():
     print("Saved: figure3_govreport_frontier.png")
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# Figure 4 (Serving Slide 1)
+# P99 E2E latency vs arrival rate for 4 configs + KV utilization (v0 only)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def plot_figure4():
+    rates = [0.5, 1.0, 2.0, 4.0]
+
+    p99 = {
+        "v0_eager": [25.2,  60.5,  202.8, 256.7],
+        "v0_graph": [30.4,  75.5,  230.5, 294.3],
+        "v1_graph": [26.1,  73.0,  274.5, 345.6],
+        "v1_eager": [26.3,  66.6,  276.0, 347.0],
+    }
+    kv_util_v0_eager = [18.7, 33.9, 79.7, 79.7]  # % block utilization (v0 only)
+
+    styles = {
+        "v0_eager": ("solid",   "o", "#4C72B0", "v0 eager"),
+        "v0_graph": ("dashed",  "s", "#4C72B0", "v0 graph"),
+        "v1_graph": ("solid",   "^", "#DD8452", "v1 graph"),
+        "v1_eager": ("dashed",  "D", "#DD8452", "v1 eager"),
+    }
+
+    fig, ax1 = plt.subplots(figsize=(8, 5))
+    ax2 = ax1.twinx()
+
+    for key, (ls, mk, col, lbl) in styles.items():
+        ax1.plot(rates, p99[key], linestyle=ls, marker=mk,
+                 color=col, linewidth=2, markersize=7, label=lbl)
+
+    ax2.bar(rates, kv_util_v0_eager, width=0.18, alpha=0.25,
+            color="#4C72B0", label="KV util (v0 eager)")
+    ax2.set_ylabel("Peak KV Block Utilization % (v0 only)", fontsize=10, color="#4C72B0")
+    ax2.tick_params(axis="y", labelcolor="#4C72B0")
+    ax2.set_ylim(0, 120)
+
+    ax1.set_xlabel("Arrival Rate (req/s)", fontsize=11)
+    ax1.set_ylabel("P99 E2E Latency (s)", fontsize=11)
+    ax1.set_title("Concurrent Serving — P99 Latency & KV Block Utilization\n"
+                  "PagedAttention: v0/v1 × graph/eager", fontsize=11)
+    ax1.set_xticks(rates)
+    ax1.grid(axis="y", linestyle="--", alpha=0.4)
+
+    lines1, labels1 = ax1.get_legend_handles_labels()
+    from matplotlib.patches import Patch
+    kv_patch = Patch(facecolor="#4C72B0", alpha=0.25, label="KV util % (v0 eager, right axis)")
+    ax1.legend(handles=lines1 + [kv_patch], fontsize=9, loc="upper left")
+
+    ax1.axvspan(1.0, 2.0, alpha=0.07, color="red", label="Saturation zone")
+    ax1.text(1.5, 310, "Saturation\nzone", ha="center", fontsize=8, color="red")
+
+    plt.tight_layout()
+    plt.savefig(FIGURE_DIR / "figure4_serving_p99_kv.png", bbox_inches="tight")
+    plt.show()
+    print("Saved: figure4_serving_p99_kv.png")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# Figure 5 (Serving Slide 2)
+# Throughput at saturation (4.0 req/s) for 4 configs
+# ══════════════════════════════════════════════════════════════════════════════
+
+def plot_figure5():
+    configs = ["v0\neager", "v0\ngraph", "v1\ngraph", "v1\neager"]
+    throughput = [1.434, 1.296, 1.147, 1.142]
+    colors = ["#4C72B0", "#7BA7D6", "#DD8452", "#F0B482"]
+
+    fig, ax = plt.subplots(figsize=(7, 4.5))
+
+    bars = ax.bar(configs, throughput, color=colors, edgecolor="white",
+                  width=0.5, linewidth=0.8)
+    ax.set_ylabel("Actual Throughput (req/s)", fontsize=12)
+    ax.set_title("Serving Throughput at 4.0 req/s Arrival\n"
+                 "(system saturated — actual throughput ≪ arrival rate)", fontsize=11)
+    ax.set_ylim(0, 1.8)
+    ax.axhline(4.0, color="gray", linestyle="--", linewidth=1, alpha=0.5,
+               label="Arrival rate (4.0 req/s)")
+
+    for bar, val in zip(bars, throughput):
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() + 0.02,
+                f"{val:.3f}", ha="center", va="bottom", fontsize=11, fontweight="bold")
+
+    ax.text(0.5, -0.16,
+            "v0 eager is 24% faster than v1 — CUDA graphs hurt variable-length batches; "
+            "v1 chunked prefill adds scheduling overhead",
+            transform=ax.transAxes, ha="center", va="top", fontsize=9, color="dimgray")
+
+    ax.legend(fontsize=9)
+    ax.grid(axis="y", linestyle="--", alpha=0.4)
+    plt.subplots_adjust(bottom=0.18)
+    plt.savefig(FIGURE_DIR / "figure5_serving_throughput.png", bbox_inches="tight")
+    plt.show()
+    print("Saved: figure5_serving_throughput.png")
+
+
 if __name__ == "__main__":
     plot_figure1()
     plot_figure1b()
     plot_figure2()
     plot_figure3()
+    plot_figure4()
+    plot_figure5()
     print("\nAll figures saved.")

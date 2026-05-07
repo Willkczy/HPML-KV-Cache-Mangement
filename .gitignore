@@ -12,3 +12,4 @@ wandb/
 .DS_Store
 slurm-*.out
 figures/
+google-cloud-cli-darwin-arm.tar.gz

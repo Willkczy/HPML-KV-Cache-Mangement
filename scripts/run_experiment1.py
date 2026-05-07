@@ -46,16 +46,24 @@ def parse_args():
                         help="Which method to run.")
     parser.add_argument("--smoke_test", action="store_true",
                         help="Run only the first 3 samples for quick validation.")
-    # StreamingLLM-specific (ignored by other methods via **kwargs)
+    # StreamingLLM / H2O window sizes (ignored by other methods via **kwargs)
     parser.add_argument("--start_size", type=int, default=4,
                         help="StreamingLLM: number of attention sink tokens.")
     parser.add_argument("--recent_size", type=int, default=256,
-                        help="StreamingLLM: size of the recent token window.")
-    # PagedAttention-specific (ignored by other methods via **kwargs)
+                        help="StreamingLLM/H2O: size of the recent token window.")
+    # H2O-specific (ignored by other methods via **kwargs)
+    parser.add_argument("--hh_size", type=int, default=64,
+                        help="H2O: number of heavy-hitter tokens to keep.")
+    # vLLM-specific (ignored by HF methods via **kwargs)
     parser.add_argument("--block_size", type=int, default=16,
-                        help="PagedAttention: tokens per KV block.")
-    parser.add_argument("--max_model_len", type=int, default=4096,
-                        help="PagedAttention: max sequence length for vLLM engine.")
+                        help="vLLM: tokens per KV block.")
+    parser.add_argument("--max_model_len", type=int, default=None,
+                        help="vLLM: max sequence length (overrides method default).")
+    parser.add_argument("--gpu_memory_utilization", type=float, default=0.9,
+                        help="vLLM: fraction of GPU memory reserved for KV cache.")
+    # General
+    parser.add_argument("--num_samples", type=int, default=None,
+                        help="Cap total number of samples (applied after dataset load).")
     return parser.parse_args()
 
 
@@ -146,20 +154,25 @@ def main():
     if args.smoke_test:
         samples = samples[:3]
         print(f"[runner] Smoke test — using {len(samples)} samples only.")
+    elif args.num_samples is not None:
+        samples = samples[:args.num_samples]
+        print(f"[runner] --num_samples cap — using {len(samples)} samples.")
 
     # Instantiate and set up method
     method_cls = METHODS[args.method]
     method = method_cls()
 
     print(f"\n[runner] Setting up method '{args.method}' with model '{model_name}' ...")
-    method.setup(
-        model_name=model_name,
-        device=device,
+    setup_kwargs = dict(
         start_size=args.start_size,
         recent_size=args.recent_size,
+        hh_size=args.hh_size,
         block_size=args.block_size,
-        max_model_len=args.max_model_len,
+        gpu_memory_utilization=args.gpu_memory_utilization,
     )
+    if args.max_model_len is not None:
+        setup_kwargs["max_model_len"] = args.max_model_len
+    method.setup(model_name=model_name, device=device, **setup_kwargs)
 
     # Experiment loop
     records = []
@@ -283,9 +296,15 @@ def main():
     print(f"  Avg peak KV mem:   {summary['avg_peak_kv_memory_mb']:.1f} MB")
     print(f"{'='*60}\n")
 
-    # Save results
+    # Save results — include hyperparams in filename to avoid overwriting
     tag = "smoke" if args.smoke_test else "full"
-    out_path = results_dir / f"{args.method}_{tag}.json"
+    if args.method == "h2o":
+        hp_tag = f"_hh{args.hh_size}_r{args.recent_size}"
+    elif args.method in ("streaming_llm", "streaming_llm_vllm"):
+        hp_tag = f"_r{args.recent_size}"
+    else:
+        hp_tag = ""
+    out_path = results_dir / f"{args.method}{hp_tag}_{tag}.json"
     with open(out_path, "w") as f:
         json.dump({"summary": summary, "records": records}, f, indent=2)
     print(f"[runner] Results saved to {out_path}")

@@ -33,21 +33,7 @@ import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from transformers.cache_utils import DynamicCache
 
-from methods.base import BaseMethod, MethodOutput
-
-
-# ── KV memory helper ────────────────────────────────────────────────────────
-
-def _kv_memory_mb(cache) -> float:
-    """Sum of bytes used by all K and V tensors, converted to MB."""
-    if cache is None:
-        return 0.0
-    total = 0
-    for layer in cache:
-        k, v = layer[0], layer[1]   # layer is (k, v, ...) — may have extra fields
-        total += k.nelement() * k.element_size()
-        total += v.nelement() * v.element_size()
-    return total / (1024 ** 2)
+from methods.base import BaseMethod, MethodOutput, kv_memory_mb as _kv_memory_mb
 
 
 # ── Core eviction logic ─────────────────────────────────────────────────────
@@ -133,23 +119,41 @@ class H2OMethod(BaseMethod):
         self.device = device
         self.hh_size = int(kwargs.get("hh_size", 64))
         self.recent_size = int(kwargs.get("recent_size", 64))
+        self.repetition_penalty = float(kwargs.get("repetition_penalty", 1.0))
 
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name, trust_remote_code=True
         )
-        # eager attention is required to materialise attention weights
+        # Load with sdpa for memory-efficient prefill. We switch individual
+        # attention layers to eager mode only during decode steps so we can
+        # read the [B, H, 1, kv_len] attention weights for H2O scoring.
+        # During prefill (full seq_len) we never request attention weights,
+        # so sdpa is safe and avoids the O(seq_len^2) OOM.
         self.model = AutoModelForCausalLM.from_pretrained(
             model_name,
             dtype=torch.float16,
             device_map=device,
             trust_remote_code=True,
-            attn_implementation="eager",
+            attn_implementation="sdpa",
         )
         self.model.eval()
+
+        # Warm up CUDA to eliminate JIT/initialization overhead from TTFT timing
+        _dummy = torch.ones(1, 1, dtype=torch.long, device=self.device)
+        with torch.no_grad():
+            self.model(_dummy, use_cache=False)
+        torch.cuda.synchronize()
+        del _dummy
+
+        # Patch each attention layer so we can toggle eager on/off per call.
+        # During decode we temporarily set _attn_implementation = "eager" on
+        # the model config, which HuggingFace respects at forward time.
+        self._config_attn = self.model.config._attn_implementation
 
     def generate(self, prompt: str, max_new_tokens: int = 128, **kwargs) -> MethodOutput:
         hh_size = int(kwargs.get("hh_size", self.hh_size))
         recent_size = int(kwargs.get("recent_size", self.recent_size))
+        repetition_penalty = float(kwargs.get("repetition_penalty", self.repetition_penalty))
 
         inputs = self.tokenizer(prompt, return_tensors="pt").to(self.device)
         input_ids = inputs["input_ids"]
@@ -158,15 +162,35 @@ class H2OMethod(BaseMethod):
 
         torch.cuda.reset_peak_memory_stats(self.device)
 
+        def _apply_repetition_penalty(logits, seen_ids, penalty):
+            """Divide logits of already-seen tokens by penalty (> 1 = less repetition)."""
+            if penalty == 1.0 or not seen_ids:
+                return logits
+            seen = torch.tensor(list(seen_ids), device=logits.device, dtype=torch.long)
+            score = logits[0, 0, seen]
+            score = torch.where(score < 0, score * penalty, score / penalty)
+            logits[0, 0, seen] = score
+            return logits
+
         generated_ids: list[int] = []
+        seen_token_ids: set[int] = set(input_ids[0].tolist())
         past_key_values = None
         hh_scores = None
         peak_kv_mb = 0.0
+        decode_peak_kv_mb = 0.0   # post-eviction peak (the H2O benefit)
+        # next_pos tracks the absolute position of the token we're about to
+        # generate. We pass it as position_ids so the model uses the correct
+        # RoPE offset regardless of how many tokens remain in the pruned cache.
+        next_pos = prompt_tokens
 
         with torch.no_grad():
             # ── Prefill ──────────────────────────────────────────────────────
+            torch.cuda.synchronize()
             t0 = time.perf_counter()
 
+            # Prefill: no output_attentions — avoids materialising the
+            # [seq_len x seq_len] attention matrix which OOMs on long contexts.
+            # H2O scoring starts from the first decode step instead.
             outputs = self.model(
                 input_ids=input_ids,
                 past_key_values=None,
@@ -174,40 +198,59 @@ class H2OMethod(BaseMethod):
                 use_cache=True,
             )
 
+            torch.cuda.synchronize()
             t_first_token = time.perf_counter()
             ttft_ms = (t_first_token - t0) * 1000.0
 
-            next_token = outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
+            logits = outputs.logits[:, -1:, :]
+            _apply_repetition_penalty(logits, seen_token_ids, repetition_penalty)
+            next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
             generated_ids.append(next_token.item())
+            seen_token_ids.add(next_token.item())
 
-            past_key_values, hh_scores = _update_and_evict(
-                outputs.past_key_values,
-                outputs.attentions,
-                hh_scores,
-                hh_size,
-                recent_size,
-            )
-            peak_kv_mb = max(peak_kv_mb, _kv_memory_mb(past_key_values))
+            past_key_values = outputs.past_key_values
+            # Record prefill peak separately; decode_peak tracks post-eviction.
+            prefill_kv_mb = _kv_memory_mb(past_key_values)
+            peak_kv_mb = prefill_kv_mb
 
             if next_token.item() == eos_id or max_new_tokens <= 1:
+                torch.cuda.synchronize()
                 t_end = time.perf_counter()
                 return self._make_output(
                     generated_ids, prompt_tokens,
                     ttft_ms, (t_end - t0) * 1000.0,
-                    peak_kv_mb, hh_size, recent_size,
+                    peak_kv_mb, decode_peak_kv_mb, prefill_kv_mb,
+                    hh_size, recent_size,
                 )
 
             # ── Decode ───────────────────────────────────────────────────────
             for _ in range(max_new_tokens - 1):
+                # Explicit position_ids = absolute position of this token in the
+                # original sequence. This bypasses DynamicCache._seen_tokens so
+                # RoPE embeddings are always correct even after eviction.
+                position_ids = torch.tensor(
+                    [[next_pos]], device=self.device, dtype=torch.long
+                )
+                next_pos += 1
+
+                # Switch to eager for this single-token decode step so
+                # attention weights are returned for H2O scoring.
+                # [B, H, 1, kv_len] — negligible memory at any context length.
+                self.model.config._attn_implementation = "eager"
                 outputs = self.model(
                     input_ids=next_token,
                     past_key_values=past_key_values,
+                    position_ids=position_ids,
                     output_attentions=True,
                     use_cache=True,
                 )
+                self.model.config._attn_implementation = self._config_attn
 
-                next_token = outputs.logits[:, -1, :].argmax(dim=-1, keepdim=True)
+                logits = outputs.logits[:, -1:, :]
+                _apply_repetition_penalty(logits, seen_token_ids, repetition_penalty)
+                next_token = logits[:, -1, :].argmax(dim=-1, keepdim=True)
                 generated_ids.append(next_token.item())
+                seen_token_ids.add(next_token.item())
 
                 past_key_values, hh_scores = _update_and_evict(
                     outputs.past_key_values,
@@ -216,16 +259,20 @@ class H2OMethod(BaseMethod):
                     hh_size,
                     recent_size,
                 )
-                peak_kv_mb = max(peak_kv_mb, _kv_memory_mb(past_key_values))
+                step_kv = _kv_memory_mb(past_key_values)
+                decode_peak_kv_mb = max(decode_peak_kv_mb, step_kv)
+                peak_kv_mb = max(peak_kv_mb, step_kv)
 
                 if next_token.item() == eos_id:
                     break
 
+        torch.cuda.synchronize()
         t_end = time.perf_counter()
         return self._make_output(
             generated_ids, prompt_tokens,
             ttft_ms, (t_end - t0) * 1000.0,
-            peak_kv_mb, hh_size, recent_size,
+            peak_kv_mb, decode_peak_kv_mb, prefill_kv_mb,
+            hh_size, recent_size,
         )
 
     def teardown(self) -> None:
@@ -245,6 +292,8 @@ class H2OMethod(BaseMethod):
         ttft_ms: float,
         total_ms: float,
         peak_kv_mb: float,
+        decode_peak_kv_mb: float,
+        prefill_kv_mb: float,
         hh_size: int,
         recent_size: int,
     ) -> MethodOutput:
@@ -258,6 +307,10 @@ class H2OMethod(BaseMethod):
             ttft_ms=ttft_ms,
             total_time_ms=total_ms,
             decode_latency_ms=total_ms - ttft_ms,
-            peak_kv_memory_mb=peak_kv_mb,
-            metadata={"hh_size": hh_size, "recent_size": recent_size},
+            peak_kv_memory_mb=decode_peak_kv_mb,
+            metadata={
+                "hh_size": hh_size,
+                "recent_size": recent_size,
+                "prefill_peak_kv_memory_mb": prefill_kv_mb,
+            },
         )

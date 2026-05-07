@@ -40,9 +40,8 @@ plt.rcParams.update({
 def plot_figure1():
     methods = ["full_cache", "h2o", "streaming_llm", "paged_attention"]
     kv_mem  = [732.8, 17.5, 3.7, 732.9]   # MB, post-eviction decode steady-state
-    accuracy = [40.9, 40.9, 40.9, 40.9]   # %
 
-    fig, ax = plt.subplots(figsize=(7, 4.5))
+    fig, ax = plt.subplots(figsize=(7.5, 5))
 
     bars = ax.bar(
         [LABELS[m] for m in methods],
@@ -52,32 +51,34 @@ def plot_figure1():
         width=0.55,
     )
     ax.set_yscale("log")
-    ax.set_ylabel("Decode-phase KV Memory (MB, log scale)")
-    ax.set_title("LongBench Short Answer — KV Memory vs Accuracy")
-    ax.set_ylim(0.5, 3000)
+    ax.set_ylabel("Decode-phase KV Memory (MB, log scale)", fontsize=12)
+    ax.set_title("LongBench Short Answer\nAll methods: 40.9% accuracy  |  KV memory comparison",
+                 fontsize=12)
+    ax.set_ylim(0.5, 5000)
 
-    # Annotate bars
+    # Annotate each bar with its value
     for bar, val in zip(bars, kv_mem):
-        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() * 1.3,
-                f"{val:.1f} MB", ha="center", va="bottom", fontsize=9, fontweight="bold")
+        ax.text(bar.get_x() + bar.get_width()/2, bar.get_height() * 1.5,
+                f"{val:.1f} MB", ha="center", va="bottom", fontsize=10, fontweight="bold")
 
-    # Inset: accuracy (all equal)
-    ax_in = ax.inset_axes([0.62, 0.55, 0.36, 0.40])
-    ax_in.bar([LABELS[m][:4] for m in methods], accuracy,
-              color=[COLORS[m] for m in methods], edgecolor="white")
-    ax_in.set_ylim(0, 80)
-    ax_in.set_ylabel("Accuracy (%)", fontsize=8)
-    ax_in.set_title("Accuracy (all equal)", fontsize=8)
-    ax_in.tick_params(axis="x", labelsize=7)
-    ax_in.tick_params(axis="y", labelsize=7)
-    ax_in.axhline(40.9, color="gray", linestyle="--", linewidth=0.8)
+    # Highlight StreamingLLM reduction with a bracket-style annotation
+    ax.annotate(
+        "198× less\nthan Full Cache",
+        xy=(2, 3.7),
+        xytext=(2.55, 20),
+        arrowprops=dict(arrowstyle="->", color="#2ca02c", lw=1.5),
+        color="#2ca02c", fontsize=10, ha="left", va="center",
+        fontweight="bold",
+    )
 
-    ax.annotate("198× less\nthan baseline",
-                xy=(2, 3.7), xytext=(2, 80),
-                arrowprops=dict(arrowstyle="->", color="green"),
-                color="green", fontsize=9, ha="center")
+    # Equal accuracy note box
+    ax.text(0.02, 0.97, "All methods achieve identical accuracy (40.9%)",
+            transform=ax.transAxes, fontsize=9, va="top",
+            bbox=dict(boxstyle="round,pad=0.3", facecolor="lightyellow",
+                      edgecolor="gray", alpha=0.8))
 
     ax.grid(axis="y", linestyle="--", alpha=0.4)
+    ax.tick_params(axis="x", labelsize=11)
     plt.tight_layout()
     plt.savefig(FIGURE_DIR / "figure1_kv_memory_lbshort.png", bbox_inches="tight")
     plt.show()

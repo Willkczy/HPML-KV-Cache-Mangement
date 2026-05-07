@@ -10,10 +10,10 @@ Branch: `feat/fairness-realistic-workload`
 
 ## Key Findings
 
-1. **StreamingLLM (recent=64) achieves 198× KV reduction with zero quality loss** on short-answer tasks — the question and answer choices fit within a 68-token window.
-2. **H2O collapses on long generation** — 4.5% accuracy (near-random) and 0.0 ROUGE-L with 128-token budget on 8k–16k inputs.
+1. **StreamingLLM reduces decode-phase KV memory significantly with no quality loss on short-answer tasks** — for max_new_tokens=10, the answer token is generated from the full prefill context before trimming, so window size does not affect accuracy. KV reduction (3.7 MB vs 732 MB) reflects the post-trim decode cache.
+2. **H2O collapses on long generation** — 4.5% accuracy (near-random) and 0.0 ROUGE-L with 128-token budget on 8k–16k inputs, regardless of budget size tested (up to 1024 tokens).
 3. **paged_attention matches full_cache quality** across all benchmarks — confirms both are correct uncompressed baselines.
-4. **KV eviction hurts long generation** — both H2O and StreamingLLM degrade significantly when the window is small relative to input length.
+4. **KV eviction hurts long-form generation** — both H2O and StreamingLLM degrade significantly on tasks requiring 512 output tokens. StreamingLLM recovers near-baseline quality on GovReport with recent=4096 (ROUGE-L 0.1832 vs 0.1859 baseline, 2.3× less KV memory).
 
 ---
 
@@ -107,11 +107,11 @@ Branch: `feat/fairness-realistic-workload`
 | paged_attention | 57.3% (86/150) | 37.1 ms | 192.9 ms | 43.5 tok/s | 23.8 MB |
 
 **Observations:**
-- All methods match in accuracy — eviction has no quality impact on short prompts
-- H2O peak KV (17.5 MB) lower than full_cache (23.8 MB) — reports post-eviction decode KV
-- StreamingLLM (recent=64) peak KV (3.7 MB) — 6.4× less than full_cache with zero quality loss; MMLU inputs fit within 68-token window
-- H2O decode time (78.1ms) shorter because it generates fewer tokens before EOS; per-token throughput lower (29.9 tok/s) due to eager attention overhead
-- paged_attention TTFT (37.1ms) vs HF methods (44–45ms): vLLM engine pre-warmed at init
+- All methods match in accuracy — for max_new_tokens=10, the answer letter is generated from the full prefill context (before any KV trimming), so eviction budget and window size do not affect accuracy
+- StreamingLLM (recent=64) peak KV (3.7 MB) — 6.4× less than full_cache; post-trim decode cache only; accuracy preserved via full prefill mechanism, not window coverage (MMLU inputs are 128–512 tokens, larger than the 68-token window)
+- H2O peak KV (17.5 MB) — post-eviction decode cache; budget of 128 tokens covers most MMLU inputs during decode
+- H2O decode time (78.1ms) is shorter because eviction changes the attention distribution, causing the model to generate EOS earlier; per-token throughput lower (29.9 tok/s) because H2O uses unfused eager attention kernel (`attn_implementation="eager"`) to materialize attention weights for eviction scoring — full_cache and streaming_llm use the faster SDPA fused kernel
+- paged_attention TTFT (37.1ms) lower than HF methods (44–45ms): vLLM engine is more comprehensively warmed during `LLM()` initialization vs the single dummy forward pass warm-up in HF methods
 
 ---
 
@@ -125,11 +125,11 @@ Branch: `feat/fairness-realistic-workload`
 | paged_attention | 40.9% (9/22) | 1198.1 ms | 148.3 ms | 5.4 tok/s | 732.9 MB |
 
 **Observations:**
-- All methods achieve identical accuracy — KV eviction does not hurt quality for short-answer generation
-- **StreamingLLM (recent=64) KV memory: 3.7 MB** — 198× less than full_cache with zero quality loss; question+choices fit within 68-token window
-- **H2O KV memory: 17.5 MB** (128-token budget) — 42× less than full_cache
-- Both eviction methods hold ~732MB during prefill; reported KV is post-eviction decode steady-state
-- paged_attention TTFT lower (1198ms vs 1382–1435ms): vLLM's more efficient prefill scheduling
+- All methods achieve identical accuracy — same mechanism as MMLU: the answer token is generated from the full prefill context (8k–16k tokens) before any KV trimming occurs
+- **Both eviction methods hold ~732MB during prefill** — eviction only begins after the first decode token; reported KV (3.7 MB and 17.5 MB) is the post-eviction decode steady-state, not the peak during prefill
+- **StreamingLLM post-trim decode KV: 3.7 MB** (68-token window) — 198× less than full_cache during decode; trim happens immediately after prefill, so all subsequent decode steps use only the sink+recent window
+- **H2O post-eviction decode KV: 17.5 MB** (128-token budget) — 42× less than full_cache during decode; first eviction at decode step 1 reduces from ~732MB to budget size
+- paged_attention TTFT lower (1198ms vs 1382–1435ms): vLLM processes the full 8k–16k prompt more efficiently via PagedAttention's block-based memory management
 
 ---
 
@@ -143,11 +143,11 @@ Branch: `feat/fairness-realistic-workload`
 | paged_attention | 18.2% (4/22) | 1255.7 ms | 5255.9 ms | 24.4 tok/s | 746.6 MB |
 
 **Observations:**
-- **Quality degrades significantly** for all eviction methods on long generation — the model loses important context
-- **H2O collapses to near-random (4.5%)** — budget of 128 tokens is catastrophically small for 512-token generation over 8k–16k inputs
-- StreamingLLM (13.6%) degrades less than H2O but significantly below full_cache (27.3%) — window of 1028 tokens covers only 6–12% of input
-- paged_attention (18.2%) lower than full_cache (27.3%) — note: only 22 samples, 2-sample difference may be noise
-- H2O throughput (16.2 tok/s) much lower than others — eager attention overhead dominates over 512 decode steps
+- **Quality degrades for all eviction methods** — unlike short-answer tasks, 512 decode tokens means the model must generate from the trimmed cache for nearly all steps; context loss accumulates
+- **H2O collapses to near-random (4.5%)** — at decode step 1, H2O evicts from 8k–16k tokens down to budget=128 using only the first decode token's attention scores as guidance; this one-shot eviction with no accumulated history selects poor representatives
+- **StreamingLLM (13.6%)** degrades less than H2O — window of 1028 tokens (6–12% of input) always retains the 4 attention sinks + most recent 1024 tokens, which includes the question and recent reasoning context
+- **paged_attention (18.2%) vs full_cache (27.3%)** — only 22 samples; a 2-sample difference; likely statistical noise (not a real quality gap between full-cache methods)
+- **H2O throughput (16.1 tok/s)** — much lower than full_cache (34.3 tok/s) and streaming_llm (36.9 tok/s) because each of the 512 decode steps requires: (1) unfused eager attention kernel, (2) materializing attention weights, (3) running `_update_and_evict` topk selection
 
 ---
 
@@ -163,9 +163,9 @@ Reporting the best-quality eviction config per method (closest ROUGE-L to full_c
 | paged_attention | — | 0.1850 | 845.4 ms | 7500.5 ms | 40.0 tok/s | 525.8 MB |
 
 **Observations:**
-- **H2O collapses regardless of budget** — ROUGE-L=0.0000 even with budgets up to 1024 tokens. Root cause: prefill attention scoring is O(seq_len²) and infeasible for 4k–16k sequences; eviction at decode step 1 has insufficient history to identify important tokens
-- **StreamingLLM (recent=4096) achieves ROUGE-L=0.1832** — only 1.5% below full_cache with **2.3× less KV memory** (224.2 MB vs 525.4 MB)
-- **paged_attention matches full_cache** (0.1850 vs 0.1859) — confirmed correct baseline
+- **H2O ROUGE-L=0.0000 regardless of budget** — tested budgets 128, 512, 1024, 2048 tokens, all collapse. Two root causes: (1) prefill attention scoring is O(seq_len²) and computationally infeasible for 4k–16k inputs on a single GPU, so our implementation skips prefill scoring; (2) eviction at decode step 1 uses only one step of attention history — insufficient to identify which document tokens matter for 512-token summarization
+- **StreamingLLM (recent=4096) achieves ROUGE-L=0.1832** — only 1.5% below full_cache (0.1859) with 2.3× less KV memory (224.2 MB vs 525.4 MB); the 4100-token window retains enough of the recent document for coherent summarization
+- **paged_attention matches full_cache** (0.1850 vs 0.1859) — both store the full KV cache; confirms the analytical KV formula is consistent with the HF tensor-byte measurement
 
 **StreamingLLM window size sweep on GovReport:**
 

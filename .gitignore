@@ -3,6 +3,10 @@ __pycache__/
 .venv/
 *.egg-info/
 results/**
+!results/exp1_short/
+!results/exp2_long/
+!results/exp2_summarization/
+!results/experiment_mixed_workload/serving_*.json
 !results/dashboard/
 !results/dashboard/README.md
 !results/.gitkeep

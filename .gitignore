@@ -4,8 +4,12 @@ __pycache__/
 *.egg-info/
 results/**
 !results/exp1_short/
+!results/exp1_short/*.json
 !results/exp2_long/
+!results/exp2_long/*.json
 !results/exp2_summarization/
+!results/exp2_summarization/*.json
+!results/experiment_mixed_workload/
 !results/experiment_mixed_workload/serving_*.json
 !results/dashboard/
 !results/dashboard/README.md

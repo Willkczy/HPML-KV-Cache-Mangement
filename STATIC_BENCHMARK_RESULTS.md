@@ -102,14 +102,14 @@ Branch: `feat/fairness-realistic-workload`
 | Method | Accuracy | Avg TTFT | Avg Decode | Throughput | Peak KV mem |
 |--------|----------|----------|------------|------------|-------------|
 | full_cache | 56.7% (85/150) | 44.7 ms | 204.5 ms | 40.2 tok/s | 23.8 MB |
-| h2o | 56.7% (85/150) | 45.1 ms | 78.1 ms | 29.9 tok/s | **17.5 MB** |
+| h2o | 56.7% (85/150) | 45.1 ms | 78.1 ms | 29.9 tok/s | **7.0 MB** |
 | streaming_llm (recent=64) | 56.7% (85/150) | 44.7 ms | 203.6 ms | 40.4 tok/s | **3.7 MB** |
 | paged_attention | 57.3% (86/150) | 37.1 ms | 192.9 ms | 43.5 tok/s | 23.8 MB |
 
 **Observations:**
 - All methods match in accuracy — for max_new_tokens=10, the answer letter is generated from the full prefill context (before any KV trimming), so eviction budget and window size do not affect accuracy
 - StreamingLLM (recent=64) peak KV (3.7 MB) — 6.4× less than full_cache; post-trim decode cache only; accuracy preserved via full prefill mechanism, not window coverage (MMLU inputs are 128–512 tokens, larger than the 68-token window)
-- H2O peak KV (17.5 MB) — post-eviction decode cache; budget of 128 tokens covers most MMLU inputs during decode
+- H2O peak KV (7.0 MB) — post-eviction decode cache; budget of 128 tokens covers most MMLU inputs during decode
 - H2O decode time (78.1ms) is shorter because eviction changes the attention distribution, causing the model to generate EOS earlier; per-token throughput lower (29.9 tok/s) because H2O uses unfused eager attention kernel (`attn_implementation="eager"`) to materialize attention weights for eviction scoring — full_cache and streaming_llm use the faster SDPA fused kernel
 - paged_attention TTFT (37.1ms) lower than HF methods (44–45ms): vLLM engine is more comprehensively warmed during `LLM()` initialization vs the single dummy forward pass warm-up in HF methods
 
@@ -120,15 +120,15 @@ Branch: `feat/fairness-realistic-workload`
 | Method | Accuracy | Avg TTFT | Avg Decode | Throughput | Peak KV mem |
 |--------|----------|----------|------------|------------|-------------|
 | full_cache | 40.9% (9/22) | 1435.1 ms | 167.8 ms | 4.6 tok/s | 732.8 MB |
-| h2o | 40.9% (9/22) | 1394.8 ms | 200.3 ms | 4.0 tok/s | **17.5 MB** |
+| h2o | 40.9% (9/22) | 1394.8 ms | 200.3 ms | 4.0 tok/s | **7.0 MB** |
 | streaming_llm (recent=64) | 40.9% (9/22) | 1382.9 ms | 162.9 ms | 5.1 tok/s | **3.7 MB** |
 | paged_attention | 40.9% (9/22) | 1198.1 ms | 148.3 ms | 5.4 tok/s | 732.9 MB |
 
 **Observations:**
 - All methods achieve identical accuracy — same mechanism as MMLU: the answer token is generated from the full prefill context (8k–16k tokens) before any KV trimming occurs
-- **Both eviction methods hold ~732MB during prefill** — eviction only begins after the first decode token; reported KV (3.7 MB and 17.5 MB) is the post-eviction decode steady-state, not the peak during prefill
+- **Both eviction methods hold ~732MB during prefill** — eviction only begins after the first decode token; reported KV (3.7 MB and 7.0 MB) is the post-eviction decode steady-state, not the peak during prefill
 - **StreamingLLM post-trim decode KV: 3.7 MB** (68-token window) — 198× less than full_cache during decode; trim happens immediately after prefill, so all subsequent decode steps use only the sink+recent window
-- **H2O post-eviction decode KV: 17.5 MB** (128-token budget) — 42× less than full_cache during decode; first eviction at decode step 1 reduces from ~732MB to budget size
+- **H2O post-eviction decode KV: 7.0 MB** (128-token budget) — 105× less than full_cache during decode; first eviction at decode step 1 reduces from ~732MB to budget size
 - paged_attention TTFT lower (1198ms vs 1382–1435ms): vLLM processes the full 8k–16k prompt more efficiently via PagedAttention's block-based memory management
 
 ---
@@ -158,7 +158,7 @@ Reporting the best-quality eviction config per method (closest ROUGE-L to full_c
 | Method | Config | ROUGE-L | Avg TTFT | Avg Decode | Throughput | Peak KV mem |
 |--------|--------|---------|----------|------------|------------|-------------|
 | full_cache | — | **0.1859** | 959.5 ms | 8062.5 ms | 36.4 tok/s | 525.4 MB |
-| h2o | hh=64, r=64 (best tested) | **0.0000** | 932.1 ms | 5210.9 ms | 16.0 tok/s | **17.5 MB** |
+| h2o | hh=64, r=64 | **0.0000** | 1002.3 ms | 4798.7 ms | 14.9 tok/s | **7.0 MB** |
 | streaming_llm | recent=4096 | **0.1832** | 967.0 ms | 5912.2 ms | 35.1 tok/s | **224.2 MB** |
 | paged_attention | — | 0.1850 | 845.4 ms | 7500.5 ms | 40.0 tok/s | 525.8 MB |
 
@@ -183,7 +183,7 @@ Reporting the best-quality eviction config per method (closest ROUGE-L to full_c
 | Method | Config | MMLU Acc. | LB Acc. | LB Explain Acc. | GovReport ROUGE-L | Peak KV (LB short) |
 |--------|--------|-----------|---------|-----------------|-------------------|--------------------|
 | full_cache | — | 56.7% | 40.9% | 27.3% | 0.1859 | 732.8 MB |
-| h2o | hh=64, r=64 | 56.7% | 40.9% | **4.5%** | **0.0000** | **17.5 MB** |
+| h2o | hh=64, r=64 | 56.7% | 40.9% | **4.5%** | **0.0000** | **7.0 MB** |
 | streaming_llm | recent=1024 | 56.7% | 40.9% | 13.6% | 0.1292 | 56.2 MB |
 | streaming_llm (best summ.) | recent=4096 | 56.7% | 40.9% | — | **0.1832** | 224.2 MB |
 | paged_attention | — | 57.3% | 40.9% | 18.2% | 0.1850 | 732.9 MB |

@@ -10,7 +10,7 @@
 
 - **Team Name:** Team 31
 - **Members:**
-  - Hung-Kai Huang (hh3164) — Full KV Cache baseline (HuggingFace)
+  - Hung-Kai Huang (hh3164) — Full KV Cache baseline (HuggingFace) + datapipeline and experiments setups
   - Ting-Feng Huang (th3192) — StreamingLLM method + fairness analysis + serving benchmark
   - Sripad Karne (sk5695) — H2O method
   - Yipeng Wang (yw4623) — PagedAttention (vLLM)

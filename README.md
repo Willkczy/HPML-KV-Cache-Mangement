@@ -54,7 +54,7 @@ During LLM inference, the KV cache grows linearly with sequence length — a 7B 
 | Method | MMLU Acc. | LB Short Acc. | GovReport ROUGE-L | Decode KV (LB Short) |
 |--------|-----------|---------------|-------------------|----------------------|
 | Full Cache | 56.7% | 40.9% | 0.1859 | 732.8 MB |
-| H2O (hh=64, r=64) | 56.7% | 40.9% | 0.0000 | **17.5 MB** |
+| H2O (hh=64, r=64) | 56.7% | 40.9% | 0.0000 | **7.0 MB** |
 | StreamingLLM (recent=1024) | 56.7% | 40.9% | 0.1292 | 56.2 MB |
 | StreamingLLM (recent=4096) | 56.7% | 40.9% | **0.1832** | 224.2 MB |
 | PagedAttention | 57.3% | 40.9% | 0.1850 | 732.9 MB |
@@ -88,22 +88,21 @@ During LLM inference, the KV cache grows linearly with sequence length — a 7B 
 ├── SERVING_RESULTS.md             # Experiment 2 serving results
 ├── configs/                       # YAML configs for all experiments
 ├── deliverables/                  # Final report and presentation
-├── methods/                       # KV cache method implementations
+├── methods/                       # Source code: KV cache method implementations (replaces src/)
 │   ├── base.py
 │   ├── full_cache.py
 │   ├── h2o.py
 │   ├── paged_attention.py
 │   ├── streaming_llm.py
 │   └── streaming_llm_vllm.py
-├── data/
+├── data/                          # Source code: dataset loaders and trace generator (replaces src/)
 │   ├── pipeline.py                # Dataset loaders → list[Sample]
 │   └── realistic_trace.py         # Poisson trace generator
 ├── scripts/
 │   ├── run_experiment1.py         # Static single-request runner
 │   ├── run_experiment_mixed_workload.py
 │   ├── run_vllm_serving_workload.py
-│   ├── sweep_streaming_llm.py
-│   └── plot_results.py            # Generates figures/
+│   └── sweep_streaming_llm.py
 ├── slurm/                         # Insomnia HPC Slurm job scripts
 └── results/
     └── dashboard/                 # Static experiment results dashboard
@@ -167,13 +166,6 @@ python -m data.realistic_trace --config configs/experiment_mixed_workload.yaml
 
 # Run serving benchmark
 sbatch --export=ALL,METHOD=paged_attention slurm/run_vllm_serving_workload.sbatch
-```
-
-### F. Generate Figures
-
-```bash
-python scripts/plot_results.py
-# Saved to figures/
 ```
 
 ---

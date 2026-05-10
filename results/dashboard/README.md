@@ -13,7 +13,7 @@ Static export of all experiment runs. Source of truth: JSON files in `results/`.
 | Method | Config | Accuracy | Avg TTFT | Throughput | Decode KV Mem |
 |--------|--------|----------|----------|------------|---------------|
 | full_cache | — | 56.7% | 44.7 ms | 40.2 tok/s | 23.8 MB |
-| h2o | hh=64, r=64 | 56.7% | 45.1 ms | 29.9 tok/s | 17.5 MB |
+| h2o | hh=64, r=64 | 56.7% | 45.1 ms | 29.9 tok/s | 7.0 MB |
 | streaming_llm | recent=64 | 56.7% | 44.7 ms | 40.4 tok/s | 3.7 MB |
 | paged_attention | eager, v0 | 57.3% | 37.1 ms | 43.5 tok/s | 23.8 MB |
 
@@ -22,7 +22,7 @@ Static export of all experiment runs. Source of truth: JSON files in `results/`.
 | Method | Config | Accuracy | Avg TTFT | Throughput | Decode KV Mem |
 |--------|--------|----------|----------|------------|---------------|
 | full_cache | — | 40.9% | 1435 ms | 4.6 tok/s | 732.8 MB |
-| h2o | hh=64, r=64 | 40.9% | 1395 ms | 4.0 tok/s | 17.5 MB |
+| h2o | hh=64, r=64 | 40.9% | 1395 ms | 4.0 tok/s | 7.0 MB |
 | streaming_llm | recent=64 | 40.9% | 1383 ms | 5.1 tok/s | 3.7 MB |
 | paged_attention | eager, v0 | 40.9% | 1198 ms | 5.4 tok/s | 732.9 MB |
 
@@ -31,7 +31,7 @@ Static export of all experiment runs. Source of truth: JSON files in `results/`.
 | Method | Config | ROUGE-L | Avg TTFT | Throughput | KV Mem |
 |--------|--------|---------|----------|------------|--------|
 | full_cache | — | 0.1859 | 960 ms | 36.4 tok/s | 525.4 MB |
-| h2o | hh=64, r=64 | 0.0000 | 932 ms | 16.0 tok/s | 17.5 MB |
+| h2o | hh=64, r=64 | 0.0000 | 932 ms | 16.0 tok/s | 7.0 MB |
 | streaming_llm | recent=4096 | 0.1832 | 967 ms | 35.1 tok/s | 224.2 MB |
 | paged_attention | eager, v0 | 0.1850 | 845 ms | 40.0 tok/s | 525.8 MB |
 

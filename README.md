@@ -18,8 +18,8 @@
 ## Submission
 
 - **GitHub repository:** [https://github.com/Willkczy/HPML-KV-Cache-Mangement](https://github.com/Willkczy/HPML-KV-Cache-Mangement)
-- **Final report:** [`deliverables/HPML_Final_Report.pdf`](deliverables/HPML_Final_Report.pdf)
-- **Final presentation:** [`deliverables/HPML_Final_Presentation.pdf`](deliverables/HPML_Final_Presentation.pdf)
+- **Final report:** [`deliverables/Team 31_HPML_Final_Report.pdf`](deliverables/Team%2031_HPML_Final_Report.pdf)
+- **Final presentation:** [`deliverables/Team 31_HPML_Final_Presentation.pdf`](deliverables/Team%2031_HPML_Final_Presentation.pdf)
 - **Experiment results dashboard:** [`results/dashboard/README.md`](results/dashboard/README.md)
 
 ---
